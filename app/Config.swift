@@ -846,3 +846,76 @@ enum ConfigStore {
         FileManager.default.fileExists(atPath: wantedPath)
     }
 }
+
+// MARK: - 配置导入导出
+
+struct ImportPreview {
+    var config: AppConfig
+    var issues: [String]
+    /// 配置里指向的凭据文件在这台机器上还不存在，导入后要重新填账号。
+    var missingCredentials: [String]
+
+    var summary: String {
+        "\(config.vpns.count) 个 VPN · \(config.jumps.count) 台跳板 · \(config.forwards.count) 条转发"
+    }
+}
+
+enum ConfigTransferError: LocalizedError {
+    case notNetLinkConfig
+    case unreadable(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notNetLinkConfig: return "这不是 NetLink 的配置文件"
+        case .unreadable(let reason): return "读不了这个文件：\(reason)"
+        }
+    }
+}
+
+/// 配置的导出和导入。配置里没有密码：账号密码在各自的凭据文件里，不随配置走。
+enum ConfigTransfer {
+    private static let knownKeys: Set<String> = ["forwards", "jumps", "vpns", "jumpHost", "credentialFile", "routeMarker", "pingHost"]
+
+    static func export(_ config: AppConfig) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(config)
+    }
+
+    static func write(_ config: AppConfig, to url: URL) throws {
+        try export(config).write(to: url, options: .atomic)
+        // 里面有主机名和路径，不该让别的用户读到。
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    /// 配置的解码对缺字段很宽容（`{}` 也能解出一份默认值），所以先确认它确实像 NetLink 的配置，
+    /// 免得随便一个 JSON 文件就把当前配置换成默认值。
+    static func parse(_ data: Data) throws -> ImportPreview {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              !knownKeys.isDisjoint(with: object.keys) else {
+            throw ConfigTransferError.notNetLinkConfig
+        }
+        let decoded: AppConfig
+        do {
+            decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+        } catch {
+            throw ConfigTransferError.unreadable(error.localizedDescription)
+        }
+        var config = decoded
+        config.normalize()
+        let missing = config.vpns.compactMap { vpn -> String? in
+            guard !vpn.isSystemVPN, !vpn.credentialFile.isEmpty else { return nil }
+            let path = PathExpander.expand(vpn.credentialFile)
+            return FileManager.default.fileExists(atPath: path) ? nil : vpn.name
+        }
+        return ImportPreview(config: config, issues: ConfigCheck.issues(config), missingCredentials: missing)
+    }
+
+    /// 导入前把当前配置留一份。
+    static func backupCurrent() {
+        let backup = ConfigStore.directory.appendingPathComponent("config.json.bak")
+        guard FileManager.default.fileExists(atPath: ConfigStore.file.path) else { return }
+        try? FileManager.default.removeItem(at: backup)
+        try? FileManager.default.copyItem(at: ConfigStore.file, to: backup)
+    }
+}

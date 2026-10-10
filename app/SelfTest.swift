@@ -203,6 +203,23 @@ enum SelfTest {
         group.wait()
         check("file lock excludes threads", !overlapped)
 
+        // 配置导入导出
+        if let exported = try? ConfigTransfer.export(config),
+           let back = try? ConfigTransfer.parse(exported) {
+            check("export then import round trips", back.config == config && back.issues.isEmpty)
+            check("export has no password", !(String(data: exported, encoding: .utf8) ?? "").contains("password"))
+        } else {
+            check("export then import round trips", false)
+        }
+        check("empty json is not a config", (try? ConfigTransfer.parse(Data("{}".utf8))) == nil)
+        check("unrelated json is not a config", (try? ConfigTransfer.parse(Data(#"{"name":"x"}"#.utf8))) == nil)
+        check("array is not a config", (try? ConfigTransfer.parse(Data("[1,2]".utf8))) == nil)
+        check("garbage is not a config", (try? ConfigTransfer.parse(Data("nope".utf8))) == nil)
+        let risky = Data(#"{"jumps":[{"name":"x","host":"a@b","identityFile":"~/k"}],"forwards":[{"name":"w","localPort":80,"targetHost":"10.0.0.1","targetPort":80}],"vpnLogFile":"/etc/evil.log"}"#.utf8)
+        check("import reports bad paths", ((try? ConfigTransfer.parse(risky))?.issues.isEmpty) == false)
+        let needsLogin = Data(#"{"jumps":[{"name":"x","host":"a@b","identityFile":"~/k"}],"forwards":[{"name":"w","localPort":80,"targetHost":"10.0.0.1","targetPort":80}],"vpns":[{"name":"远端 VPN","credentialFile":"~/netlink-does-not-exist.cred"}]}"#.utf8)
+        check("import lists missing credentials", (try? ConfigTransfer.parse(needsLogin))?.missingCredentials == ["远端 VPN"])
+
         var broken = config
         broken.forwards.append(Forward(name: "重复", localPort: 80, targetHost: "10.0.0.1", targetPort: 80))
         check("duplicate port rejected", !ConfigCheck.issues(broken).isEmpty)

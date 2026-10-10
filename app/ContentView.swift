@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct Theme: Equatable {
     var bg: Color
@@ -116,6 +117,7 @@ struct ContentView: View {
     @Environment(\.netlinkTheme) private var theme
     @State private var showSettings = false
     @State private var showLogs = false
+    @State private var showTransfer = false
     @State private var pathEdit: PathEdit?
     @State private var statusDismiss: Task<Void, Never>?
 
@@ -142,6 +144,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showLogs) {
             LogsView(model: model).themed()
+        }
+        .sheet(isPresented: $showTransfer) {
+            ConfigTransferView(model: model).themed()
         }
         .sheet(item: $pathEdit) { kind in
             PathConfigSheet(model: model, kind: kind).themed()
@@ -175,6 +180,9 @@ struct ContentView: View {
                 }
                 ActionButton(title: "日志", symbol: "doc.text", kind: .secondary) {
                     showLogs = true
+                }
+                ActionButton(title: "导入导出", symbol: "square.and.arrow.up.on.square", kind: .secondary) {
+                    showTransfer = true
                 }
                 ActionButton(title: "设置", symbol: "gearshape", kind: .secondary) {
                     showSettings = true
@@ -768,6 +776,170 @@ struct LogsView: View {
             .frame(width: 64)
         }
         .buttonStyle(.plain)
+    }
+}
+
+@MainActor
+struct ConfigTransferView: View {
+    var model: AppModel
+    @Environment(\.netlinkTheme) private var theme
+    @Environment(\.dismiss) private var dismiss
+    @State private var preview: ImportPreview?
+    @State private var previewName = ""
+    @State private var message = ""
+    @State private var failed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("配置导入导出")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Button("关闭") { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            Rectangle().fill(theme.line).frame(height: 1)
+
+            VStack(alignment: .leading, spacing: 18) {
+                section(
+                    title: "导出",
+                    detail: "把当前的 VPN、跳板、转发和图上的位置存成一个 JSON 文件。账号密码不在里面，各自留在本机的凭据文件中。"
+                ) {
+                    ActionButton(title: "导出到文件…", symbol: "square.and.arrow.up", kind: .secondary) {
+                        exportConfig()
+                    }
+                }
+                Rectangle().fill(theme.line).frame(height: 1)
+                section(
+                    title: "导入",
+                    detail: "选择之前导出的文件，确认内容后替换当前配置。替换前会把现在的配置备份为 config.json.bak。"
+                ) {
+                    ActionButton(title: "选择文件…", symbol: "square.and.arrow.down", kind: .secondary) {
+                        chooseFile()
+                    }
+                    if let preview {
+                        previewCard(preview)
+                    }
+                }
+                if !message.isEmpty {
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundStyle(failed ? theme.bad : theme.ok)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(20)
+            Spacer(minLength: 0)
+        }
+        .background(theme.bg)
+        .foregroundStyle(theme.text)
+        .frame(width: 520, height: 440)
+    }
+
+    private func section<Content: View>(title: String, detail: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+            Text(detail)
+                .font(.system(size: 12))
+                .foregroundStyle(theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top) { content() }
+        }
+    }
+
+    private func previewCard(_ preview: ImportPreview) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(previewName)
+                .font(.system(size: 12, weight: .semibold))
+            Text(preview.summary)
+                .font(.system(size: 12))
+                .foregroundStyle(theme.muted)
+            if !preview.missingCredentials.isEmpty {
+                Text("这台机器上还没有 \(preview.missingCredentials.joined(separator: "、")) 的账号文件，导入后要在对应节点里重新填账号。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !preview.issues.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("不能导入：")
+                        .font(.system(size: 12, weight: .semibold))
+                    ForEach(preview.issues, id: \.self) { issue in
+                        Text("· \(issue)").font(.system(size: 12))
+                    }
+                }
+                .foregroundStyle(theme.bad)
+            }
+            HStack(spacing: 8) {
+                if preview.issues.isEmpty {
+                    ActionButton(title: "导入并替换当前配置", symbol: "checkmark", kind: .primary) {
+                        apply(preview)
+                    }
+                }
+                ActionButton(title: "取消", kind: .secondary) {
+                    self.preview = nil
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(theme.line, lineWidth: 1))
+    }
+
+    private func exportConfig() {
+        let panel = NSSavePanel()
+        panel.title = "导出配置"
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "netlink-config.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let current = ConfigStore.loadIfValid() ?? model.config
+            try ConfigTransfer.write(current, to: url)
+            show("已导出到 \(url.path)", failed: false)
+        } catch {
+            show("导出失败：\(error.localizedDescription)", failed: true)
+        }
+    }
+
+    private func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.title = "选择要导入的配置"
+        panel.allowedContentTypes = [.json]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            preview = try ConfigTransfer.parse(data)
+            previewName = url.lastPathComponent
+            message = ""
+        } catch {
+            preview = nil
+            show(error.localizedDescription, failed: true)
+        }
+    }
+
+    private func apply(_ preview: ImportPreview) {
+        ConfigTransfer.backupCurrent()
+        do {
+            try model.save(config: preview.config)
+            self.preview = nil
+            show("已导入。原配置备份为 config.json.bak，转发和 VPN 的改动重新连接后生效。", failed: false)
+            Task { await model.refresh() }
+        } catch {
+            show("导入失败：\(error.localizedDescription)", failed: true)
+        }
+    }
+
+    private func show(_ text: String, failed: Bool) {
+        message = text
+        self.failed = failed
     }
 }
 
