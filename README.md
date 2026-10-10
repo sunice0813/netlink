@@ -31,7 +31,7 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
    xattr -dr com.apple.quarantine /Applications/NetLink.app
    ```
 
-4. 配置免密 sudo（见下面「免密 sudo」）。
+4. **配置免密 sudo（必须，见下面「免密 sudo」）**。不配置的话，连接和断开都会失败。
 5. 打开 NetLink。
 
 发布的版本没有开发者签名和公证，所以第 3 步是必需的，否则 macOS 会提示「无法验证是否包含恶意软件」。较新的系统上右键选择「打开」已经绕不过这个提示；不想用命令的话，可以在 系统设置 → 隐私与安全性 里点「仍要打开」。
@@ -109,19 +109,36 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 
 ## 免密 sudo
 
-`openconnect` 要建虚拟网卡、`autossh` 要绑定低端口（比如 80），所以连接和断开用 `sudo -n` 调用。需要在 sudoers 里放行，用 `sudo visudo -f /etc/sudoers.d/netlink` 创建：
+**这一步是必须的。** 应用用 `sudo -n` 调用需要 root 的命令，`-n` 表示不允许询问密码。没有免密授权时命令会直接失败，窗口顶部会提示「sudo 不能免密执行，连接和断开都会失败」。
+
+需要 root 的原因：`openconnect` 要建虚拟网卡、改路由；`autossh` 要监听 80 这类低端口；结束 root 起的进程要用 `kill`，查端口占用要用 `lsof`。
+
+用 `sudo visudo -f /etc/sudoers.d/netlink` 创建：
 
 ```
 # 把 yourname 换成自己的用户名
 yourname ALL=(root) NOPASSWD: /opt/homebrew/bin/openconnect, /opt/homebrew/bin/autossh, /bin/kill, /usr/sbin/lsof, /usr/bin/true
 ```
 
-程序只会：
+这五项缺一不可，少了哪项，对应的操作就会失败：
 
-- 结束带自己 `-E <隧道日志>` 标记的 `autossh` / `ssh` 进程，不会动占着同一端口的其他程序；
-- 对家目录下 `.pid` / `.log` 结尾的文件使用 `cat`、`tail`、`tee`、`rm` 的 sudo 回退（只有文件属 root 时才用，不需要可以不放行）。
+| 命令 | 用途 |
+| --- | --- |
+| `openconnect` | 连接 VPN |
+| `autossh` | 建立 SSH 隧道 |
+| `kill` | 断开时结束 VPN 和隧道进程 |
+| `lsof` | 查本地端口是被谁占用 |
+| `true` | 启动时探测 sudo 是否免密可用 |
 
-`kill` 的免密授权范围较大，请只在自己的机器上这样配置。
+如果机器上已经有 `NOPASSWD: ALL` 这样的宽泛规则，就不用再加。可以用下面的命令检查，没有报错说明已经满足：
+
+```bash
+sudo -n true && echo ok
+```
+
+另外，日志和进程文件属 root 时，程序会对家目录下 `.pid` / `.log` 结尾的文件回退用 `cat`、`tail`、`tee`、`rm`。这几项是可选的，不放行只是读不到 root 属主的日志内容。
+
+程序只会结束带自己 `-E <隧道日志>` 标记的 `autossh` / `ssh` 进程，不会动占着同一端口的其他程序。`kill` 的免密授权范围较大，请只在自己的机器上这样配置。
 
 ## 已知限制
 
