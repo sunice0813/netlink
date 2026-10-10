@@ -10,6 +10,7 @@ private struct TopologyEdge: Identifiable {
     var on: Bool
 }
 
+@MainActor
 struct TopologyCanvas: View {
     @Bindable var model: AppModel
     var pathEdit: Binding<PathEdit?>
@@ -688,6 +689,7 @@ struct TopologyCanvas: View {
     }
 }
 
+@MainActor
 private struct TopologyWires: View {
     var edges: [TopologyEdge]
     var theme: Theme
@@ -708,6 +710,7 @@ private struct TopologyWires: View {
     }
 }
 
+@MainActor
 private struct TopologyWire: View {
     var from: CGPoint
     var to: CGPoint
@@ -735,6 +738,7 @@ private struct TopologyWire: View {
     }
 }
 
+@MainActor
 private struct ArrowHead: View {
     var at: CGPoint
     var angle: CGFloat

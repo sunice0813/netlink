@@ -110,6 +110,7 @@ extension View {
     func themed() -> some View { modifier(Themed()) }
 }
 
+@MainActor
 struct ContentView: View {
     @Bindable var model: AppModel
     @Environment(\.netlinkTheme) private var theme
@@ -291,6 +292,7 @@ struct ContentView: View {
     }
 }
 
+@MainActor
 struct ServiceBadge: View {
     var pageURL: String?
     var iconFile: String? = nil
@@ -344,6 +346,7 @@ struct ServiceBadge: View {
     }
 }
 
+@MainActor
 struct PathNode: View {
     var symbol: String
     var pageURL: String? = nil
@@ -418,6 +421,7 @@ struct PathNode: View {
     }
 }
 
+@MainActor
 private struct ClickMenu<Label: View, Menu: View>: View {
     var help: String
     @ViewBuilder var label: (Bool) -> Label
@@ -449,6 +453,7 @@ private struct ClickMenu<Label: View, Menu: View>: View {
     }
 }
 
+@MainActor
 struct TunnelActionList: View {
     var port: PortStatus
     var model: AppModel
@@ -505,6 +510,7 @@ struct TunnelActionList: View {
     }
 }
 
+@MainActor
 struct TunnelActionRow: View {
     var title: String
     var symbol: String
@@ -585,6 +591,7 @@ private struct HoverProbe: NSViewRepresentable {
     }
 }
 
+@MainActor
 struct ActionButton: View {
     enum Kind { case primary, secondary, danger }
     var title: String
@@ -686,6 +693,7 @@ private struct ActionButtonStyle: ButtonStyle {
     }
 }
 
+@MainActor
 struct LogsView: View {
     var model: AppModel
     @Environment(\.netlinkTheme) private var theme
@@ -763,6 +771,7 @@ struct LogsView: View {
     }
 }
 
+@MainActor
 struct MenuPanel: View {
     var model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -1037,6 +1046,7 @@ struct MenuPanel: View {
 
 }
 
+@MainActor
 private struct FortiAccountSheet: View {
     var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -1135,6 +1145,7 @@ enum PathEdit: Identifiable {
     }
 }
 
+@MainActor
 private struct PathConfigSheet: View {
     var model: AppModel
     var kind: PathEdit
@@ -1373,6 +1384,7 @@ private struct PathConfigSheet: View {
     }
 }
 
+@MainActor
 struct SettingsView: View {
     private static let plainNumber = IntegerFormatStyle<Int>().grouping(.never)
     @Bindable var model: AppModel
@@ -1534,6 +1546,7 @@ struct SettingsView: View {
     }
 }
 
+@MainActor
 struct NetLinkCommands: Commands {
     var model: AppModel
 
