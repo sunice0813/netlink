@@ -174,3 +174,7 @@ git push origin v0.2.0
 ```
 
 产物是 `NetLink-v0.2.0-arm64.dmg` 和对应的 `.sha256`，应用内版本号取自 Tag。每次推送到 `main` 和每个 PR 也会跑一遍编译和自检。
+
+## 许可证
+
+[MIT](LICENSE)
