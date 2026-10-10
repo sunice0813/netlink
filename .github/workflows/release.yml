@@ -29,23 +29,22 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          zip="NetLink-${TAG}-arm64.zip"
-          # ditto 会保留应用包里的元数据和签名，普通 zip 不行
-          ditto -c -k --keepParent NetLink.app "$zip"
-          shasum -a 256 "$zip" > "$zip.sha256"
-          cat "$zip.sha256"
+          dmg="NetLink-${TAG}-arm64.dmg"
+          ./scripts/make-dmg.sh NetLink.app "$dmg"
+          shasum -a 256 "$dmg" > "$dmg.sha256"
+          cat "$dmg.sha256"
 
       - name: 发布
         env:
           TAG: ${{ github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          zip="NetLink-${TAG}-arm64.zip"
-          notes="未签名、未公证的 arm64 版本。首次打开请右键选择「打开」，或执行：
-          \`xattr -dr com.apple.quarantine NetLink.app\`"
+          dmg="NetLink-${TAG}-arm64.dmg"
+          notes="安装：打开 dmg，把 NetLink 拖进「应用程序」，然后在终端执行（这个版本没有签名和公证，需要解除一次隔离）：
+          \`xattr -dr com.apple.quarantine /Applications/NetLink.app\`"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$zip" "$zip.sha256" --clobber
+            gh release upload "$TAG" "$dmg" "$dmg.sha256" --clobber
           else
-            gh release create "$TAG" "$zip" "$zip.sha256" \
+            gh release create "$TAG" "$dmg" "$dmg.sha256" \
               --title "$TAG" --generate-notes --notes "$notes" --verify-tag
           fi

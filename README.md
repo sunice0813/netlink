@@ -56,21 +56,32 @@ Shadowrocket 在 Mac 上是 iOS 应用，没有命令行开关。图上能显示
 
 连接和断开用 `sudo -n` 调用 `openconnect`、`autossh`、`kill`、`lsof`，需要在 sudoers 里放行。应用只结束带自己 `-E <隧道日志>` 标记的 autossh/ssh 进程，不会动占着同一端口的其他程序。
 
+## 安装
+
+在 [Releases](../../releases) 下载 `NetLink-<版本>-arm64.dmg`，然后：
+
+1. 双击打开 dmg，把 NetLink 拖进「应用程序」。
+2. 在终端执行一次，解除下载带来的隔离标记：
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/NetLink.app
+   ```
+
+3. 打开 NetLink。
+
+发布的版本没有开发者签名和公证，所以第 2 步是必需的，否则 macOS 会提示「无法验证是否包含恶意软件」。较新的系统上，右键选择「打开」已经绕不过这个提示。不想用命令的话，可以在 系统设置 → 隐私与安全性 里点「仍要打开」。
+
+依赖：`brew install openconnect autossh`。需要免密 sudo，见下面「免密 sudo」一节。
+
 ## 发布
 
-推送 `v*` 形式的 Tag，GitHub Actions 会编译 arm64 版本并发布到 Releases：
+推送 `v*` 形式的 Tag，GitHub Actions 会编译 arm64 版本、打成 dmg 并发布到 Releases：
 
 ```bash
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-产物是 `NetLink-v0.2.0-arm64.zip` 和对应的 `.sha256`，应用内版本号取自 Tag。
+产物是 `NetLink-v0.2.0-arm64.dmg` 和对应的 `.sha256`，应用内版本号取自 Tag。
 
-发布的版本没有开发者签名和公证。下载后首次打开，请右键选择「打开」，或者先执行：
-
-```bash
-xattr -dr com.apple.quarantine NetLink.app
-```
-
-每次推送到 `main` 和每个 PR 也会跑一遍编译和自检（`.github/workflows/ci.yml`）。本地构建可以用 `NETLINK_OUT` 指定输出目录、`NETLINK_VERSION` 指定版本号。
+每次推送到 `main` 和每个 PR 也会跑一遍编译和自检（`.github/workflows/ci.yml`）。本地构建可以用 `NETLINK_OUT` 指定输出目录、`NETLINK_VERSION` 指定版本号；`scripts/make-dmg.sh` 可以把构建出的应用打成 dmg。
