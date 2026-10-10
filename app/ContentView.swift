@@ -1390,6 +1390,26 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             Form {
+                Section("开机启动") {
+                    Toggle("登录后自动打开本应用", isOn: Binding(
+                        get: { launchAtLogin },
+                        set: { setLaunchAtLogin($0) }
+                    ))
+                    if loginStatus == .requiresApproval {
+                        HStack {
+                            Text("需要在系统设置的「登录项」里允许")
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Button("打开系统设置") { SMAppService.openSystemSettingsLoginItems() }
+                        }
+                    }
+                    if !model.loginMessage.isEmpty {
+                        Text(model.loginMessage).foregroundStyle(.red)
+                    }
+                    Text("只是登录后把应用打开，不会自动连接。自动重连看各卡片上的开关。应用换了位置需要重新打开这个开关，建议放在「应用程序」里。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
                 Section("主题") {
                     Picker("主题", selection: $appearanceRaw) {
                         Text("深色").tag(AppearanceChoice.dark.rawValue)
@@ -1442,26 +1462,6 @@ struct SettingsView: View {
                     TextField("连续失败几次才重启", value: $draft.vpnFailThreshold, format: .number)
                     TextField("隧道检查间隔（秒）", value: $draft.tunnelWatchdogInterval, format: .number)
                 }
-                Section("开机启动") {
-                    Toggle("登录后自动打开本应用", isOn: Binding(
-                        get: { launchAtLogin },
-                        set: { setLaunchAtLogin($0) }
-                    ))
-                    if loginStatus == .requiresApproval {
-                        HStack {
-                            Text("需要在系统设置的「登录项」里允许")
-                                .foregroundStyle(.orange)
-                            Spacer()
-                            Button("打开系统设置") { SMAppService.openSystemSettingsLoginItems() }
-                        }
-                    }
-                    if !model.loginMessage.isEmpty {
-                        Text(model.loginMessage).foregroundStyle(.red)
-                    }
-                    Text("只是登录后把应用打开，不会自动连接。自动重连看各卡片上的开关。应用换了位置需要重新打开这个开关，建议放在「应用程序」里。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
             }
             .formStyle(.grouped)
             if !note.isEmpty {
@@ -1475,8 +1475,7 @@ struct SettingsView: View {
             HStack {
                 Button("关闭") { dismiss() }
                 Spacer()
-                Button("恢复默认转发") { draft.forwards = Forward.example }
-                Button("保存配置") { saveConfig() }
+                Button("保存") { saveConfig() }
                     .keyboardShortcut(.defaultAction)
             }
             .padding(16)
