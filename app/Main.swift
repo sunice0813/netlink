@@ -50,8 +50,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if allowTerminate { return .terminateNow }
         if terminatePending { return .terminateLater }
         terminatePending = true
-        Prefs.vpnAutoReconnect = false
-        Prefs.tunnelAutoReconnect = false
         Engine.operationQueue.async { [weak self] in
             Engine.disconnectAll()
             DispatchQueue.main.async {

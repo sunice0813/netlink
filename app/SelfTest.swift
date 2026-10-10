@@ -37,15 +37,23 @@ enum SelfTest {
         )
         check("parse service", procs[1].command.contains("--service"))
 
-        let config = AppConfig()
+        let sample = [
+            Forward(name: "Web", localPort: 80, targetHost: "10.0.0.10", targetPort: 80, openHost: "web.example.internal"),
+            Forward(name: "Admin", localPort: 8080, targetHost: "10.0.0.11", targetPort: 80),
+        ]
+        let config: AppConfig = {
+            var made = AppConfig()
+            made.forwards = sample
+            return made
+        }()
         let args = Engine.openConnectArguments(host: "https://vpn.example", user: "alice", pidFile: "/tmp/p", timeout: 30)
         check("openconnect uses stdin password", args.contains("--passwd-on-stdin") && args.contains("--background"))
         check("password stays out of argv", !args.joined(separator: " ").contains("s3cret"))
         let forwardArgs = Engine.autosshArguments(config: config)
-        check("autossh forwards", forwardArgs.contains("80:10.62.1.101:80") && forwardArgs.contains("8080:10.62.1.10:80"))
-        let oneForward = Engine.autosshArguments(config: config, forwards: [Forward.bundled[0]])
-        check("single forward args", oneForward.contains("80:10.62.1.101:80") && !oneForward.contains("8080:10.62.1.10:80"))
-        check("autossh jump", forwardArgs.last == "appdev@10.62.11.31")
+        check("autossh forwards", forwardArgs.contains("80:10.0.0.10:80") && forwardArgs.contains("8080:10.0.0.11:80"))
+        let oneForward = Engine.autosshArguments(config: config, forwards: [sample[0]])
+        check("single forward args", oneForward.contains("80:10.0.0.10:80") && !oneForward.contains("8080:10.0.0.11:80"))
+        check("autossh jump", forwardArgs.last == "user@jump.example.com")
         var extra = config
         let other = Jump(name: "备用", host: "bob@10.1.1.1", identityFile: "~/.ssh/bob")
         extra.jumps.append(other)
@@ -53,16 +61,16 @@ enum SelfTest {
         let extraArgs = Engine.autosshArguments(config: extra, forwards: [extraForward])
         check("extra jump host", extraArgs.last == "bob@10.1.1.1")
         check("extra jump key", extraArgs.contains(PathExpander.expand("~/.ssh/bob")))
-        check("primary args ignore extra jump", forwardArgs.last == "appdev@10.62.11.31" && !forwardArgs.contains("bob@10.1.1.1"))
+        check("primary args ignore extra jump", forwardArgs.last == "user@jump.example.com" && !forwardArgs.contains("bob@10.1.1.1"))
         let legacy = try? JSONDecoder().decode(AppConfig.self, from: Data(#"{"jumpHost":"a@b","identityFile":"~/.ssh/a","credentialFile":"~/.internalvpn"}"#.utf8))
         check("legacy config grows a jump and vpn", legacy?.jumps.first?.id == Jump.primary && legacy?.vpns.first?.id == VPNProfile.primary && legacy?.jumpHost == "a@b" && legacy?.vpns.first?.kind == "openconnect")
         check("legacy layout version", legacy?.layoutVersion == 0)
-        let fresh = AppConfig().defaultLayout()
+        let fresh = config.defaultLayout()
         let machine = fresh[TopologyKey.machine]!
         let vpn = fresh[TopologyKey.vpn(VPNProfile.primary)]!
         let jump = fresh[TopologyKey.jump(Jump.primary)]!
-        let git = fresh[TopologyKey.forward(Forward.bundled[0].id)]!
-        let server = fresh[TopologyKey.forward(Forward.bundled[1].id)]!
+        let git = fresh[TopologyKey.forward(sample[0].id)]!
+        let server = fresh[TopologyKey.forward(sample[1].id)]!
         check("default reads left to right", machine.x < vpn.x && vpn.x < jump.x && jump.x < git.x && git.x == server.x)
         check("default centers the chain", abs(machine.y - vpn.y) < 0.5 && abs(vpn.y - jump.y) < 0.5 && git.y < jump.y && jump.y < server.y)
         var saved = AppConfig()
@@ -81,8 +89,8 @@ enum SelfTest {
         check("late pids survive parsing", Shell.parsePS(bulky).last?.pid == 99999)
         let bigRun = Shell.run("/bin/sh", ["-c", "head -c 300000 /dev/zero | tr '\\0' a"], maxOutput: 400_000)
         check("run honours output cap", bigRun.stdout.count == 300_000)
-        check("tcp health target", Engine.tcpTarget("10.62.11.31:22")?.port == 22 && Engine.tcpTarget("172.16.88.238") == nil && Engine.tcpTarget("host:99999") == nil)
-        var chained = AppConfig()
+        check("tcp health target", Engine.tcpTarget("10.0.0.1:22")?.port == 22 && Engine.tcpTarget("10.0.0.1") == nil && Engine.tcpTarget("host:99999") == nil)
+        var chained = config
         chained.vpns.append(VPNProfile(id: VPNProfile.shadowrocket, name: "Shadowrocket", credentialFile: "", kind: "shadowrocket", serviceName: "Shadowrocket"))
         chained.vpns[0].viaID = VPNProfile.shadowrocket
         let hop = chained.defaultLayout()
@@ -90,7 +98,7 @@ enum SelfTest {
         let hopProxy = hop[TopologyKey.vpn(VPNProfile.shadowrocket)]!
         let hopVPN = hop[TopologyKey.vpn(VPNProfile.primary)]!
         let hopJump = hop[TopologyKey.jump(Jump.primary)]!
-        let hopForward = hop[TopologyKey.forward(Forward.bundled[0].id)]!
+        let hopForward = hop[TopologyKey.forward(sample[0].id)]!
         check("via puts the upstream between machine and vpn", hopMachine.x < hopProxy.x && hopProxy.x < hopVPN.x && hopVPN.x < hopJump.x && hopJump.x < hopForward.x)
         check("via chain stays on one row", abs(hopProxy.y - hopVPN.y) < 0.5 && abs(hopMachine.y - hopProxy.y) < 0.5)
         var looped = chained
@@ -110,8 +118,8 @@ enum SelfTest {
         let decoded = encoded.flatMap { try? JSONDecoder().decode(AppConfig.self, from: $0) }
         check("config roundtrip", decoded?.forwards.count == 2 && decoded?.jumpHost == config.jumpHost)
         let gitlabHTML = #"<link rel="apple-touch-icon" href="/apple.png" /><link rel="icon" type="image/png" href="/assets/favicon.png" />"#
-        let gitlabIcon = SiteIconLookup.linkIcon(in: gitlabHTML, base: URL(string: "http://git.techtanium.internal/users/sign_in")!)
-        check("gitlab tab icon", gitlabIcon?.absoluteString == "http://git.techtanium.internal/assets/favicon.png")
+        let gitlabIcon = SiteIconLookup.linkIcon(in: gitlabHTML, base: URL(string: "http://web.example.internal/users/sign_in")!)
+        check("gitlab tab icon", gitlabIcon?.absoluteString == "http://web.example.internal/assets/favicon.png")
         let jumpHTML = "<html><head><title></title></head></html>"
         check("page without icon link", SiteIconLookup.linkIcon(in: jumpHTML, base: URL(string: "http://127.0.0.1:8080/")!) == nil)
         let jumpJSON = Data(#"{"INTERFACE":{"favicon":"/static/img/facio.ico","login_title":"JumpServer"}}"#.utf8)
@@ -120,13 +128,80 @@ enum SelfTest {
         check("png is an image", SiteIconLookup.isImage(Data([0x89, 0x50, 0x4E, 0x47, 0x0D]), type: "image/png"))
         check("html is not an image", !SiteIconLookup.isImage(Data("<html>".utf8), type: "text/html"))
 
-        check("gitlab opens by name", Forward.bundled[0].browseURL?.absoluteString == "http://git.techtanium.internal/")
-        check("jumpserver opens locally", Forward.bundled[1].browseURL?.absoluteString == "http://127.0.0.1:8080/")
-        let oldGitLab = try? JSONDecoder().decode(
+        check("named forward opens by name", sample[0].browseURL?.absoluteString == "http://web.example.internal/")
+        check("plain forward opens locally", sample[1].browseURL?.absoluteString == "http://127.0.0.1:8080/")
+        let legacyForward = try? JSONDecoder().decode(
             Forward.self,
-            from: Data(#"{"name":"GitLab","localPort":80,"targetHost":"10.62.1.101","targetPort":80}"#.utf8)
+            from: Data(#"{"name":"Web","localPort":80,"targetHost":"10.0.0.10","targetPort":80}"#.utf8)
         )
-        check("old gitlab config uses domain", oldGitLab?.browseURL?.absoluteString == "http://git.techtanium.internal/")
+        check("forward without open host opens locally", legacyForward?.browseURL?.absoluteString == "http://127.0.0.1/")
+        check("forward check defaults to http", legacyForward?.check == .http)
+
+
+        // 进程识别：只认程序本身，不认参数里碰巧出现的字符串
+        check("openconnect by executable", Engine.isOpenConnect("/opt/homebrew/bin/openconnect --protocol=anyconnect vpn.example --background"))
+        check("editor on a file is not openconnect", !Engine.isOpenConnect("vim /tmp/openconnect-anyconnect.conf"))
+        let ourLog = PathExpander.expand(config.tunnelLogFile)
+        let ours = Proc(pid: 5, command: "/opt/homebrew/bin/autossh -M 0 -f -N -E \(ourLog) -i /k -L 80:10.0.0.10:80 user@jump.example.com")
+        let childSSH = Proc(pid: 6, command: "/usr/bin/ssh -N -E \(ourLog) -i /k -L 80:10.0.0.10:80 user@jump.example.com")
+        let manual = Proc(pid: 7, command: "/usr/bin/ssh -L 80:10.0.0.10:80 user@jump.example.com")
+        let unrelated = Proc(pid: 8, command: "/usr/bin/vim notes-about-autossh.txt -E \(ourLog)")
+        check("our autossh is recognised", Engine.isOurAutossh(ours, config: config))
+        check("our ssh child is recognised", Engine.isOurForwardingSSH(childSSH, config: config))
+        check("manual ssh -L is left alone", !Engine.isOurForwardingSSH(manual, config: config) && !Engine.isOurAutossh(manual, config: config))
+        check("unrelated command is left alone", !Engine.isOurAutossh(unrelated, config: config) && !Engine.isOurForwardingSSH(unrelated, config: config))
+
+        // sudo 只碰家目录下的 .pid / .log
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        check("sudo path: pid file allowed", SudoPath.allowed(home + "/.openconnect.pid"))
+        check("sudo path: outside home refused", !SudoPath.allowed("/etc/sudoers"))
+        check("sudo path: wrong suffix refused", !SudoPath.allowed(home + "/.ssh/id_ed25519"))
+        check("sudo path: dotdot refused", !SudoPath.allowed(home + "/../../etc/passwd.log"))
+        var evil = config
+        evil.vpnLogFile = "/etc/sudoers.log"
+        check("config check rejects log outside home", !ConfigCheck.issues(evil).isEmpty)
+        evil = config
+        evil.jumps[0].host = "-oProxyCommand=sh@x"
+        check("config check rejects option-like jump host", !ConfigCheck.issues(evil).isEmpty)
+        check("default config passes its own checks", ConfigCheck.issues(AppConfig()).isEmpty)
+
+        // 凭据文件：一开始就是 0600，换行会被拒绝
+        let credPath = NSTemporaryDirectory() + "netlink-selftest-\(getpid()).cred"
+        defer { try? FileManager.default.removeItem(atPath: credPath) }
+        do {
+            try Credentials.update(file: credPath, host: "h", user: "u", newPassword: "p w")
+            let mode = (try? FileManager.default.attributesOfItem(atPath: credPath)[.posixPermissions] as? Int) ?? 0
+            check("credential file is 0600", mode == 0o600)
+            check("credential round trip", Credentials.load(file: credPath)?.password == "p w")
+        } catch {
+            check("credential write", false)
+        }
+        check("credential newline rejected", (try? Credentials.update(file: credPath, host: "h", user: "u", newPassword: "a\nb")) == nil)
+        check("credential key spaces tolerated", Credentials.parse("host = h\nuser = u\npassword=p\n")?.host == "h")
+
+        // 同进程里不同线程也要互斥
+        var inside = 0
+        var overlapped = false
+        let overlapLock = NSLock()
+        let group = DispatchGroup()
+        for _ in 0..<4 {
+            group.enter()
+            DispatchQueue.global().async {
+                FileLock.with {
+                    overlapLock.lock()
+                    inside += 1
+                    if inside > 1 { overlapped = true }
+                    overlapLock.unlock()
+                    Thread.sleep(forTimeInterval: 0.05)
+                    overlapLock.lock()
+                    inside -= 1
+                    overlapLock.unlock()
+                }
+                group.leave()
+            }
+        }
+        group.wait()
+        check("file lock excludes threads", !overlapped)
 
         var broken = config
         broken.forwards.append(Forward(name: "重复", localPort: 80, targetHost: "10.0.0.1", targetPort: 80))
@@ -155,9 +230,13 @@ enum SelfTest {
         check("forticlient script talks to messenger", FortiClient.script.contains("ConnectTunnel") && FortiClient.script.contains("DisconnectTunnel") && !FortiClient.script.contains("console.log"))
         check("shadowrocket app path", Engine.systemVPNAppPath(kind: "shadowrocket") == "/Applications/Shadowrocket.app")
         check("forticlient app path", Engine.systemVPNAppPath(kind: "forticlient") == "/Applications/FortiClient.app")
-        check("forticlient icon file", AppIcon.bundledIconURL(appPath: "/Applications/FortiClient.app")?.lastPathComponent == "electron.icns")
-        check("shadowrocket icon loads", AppIcon.image(forApp: "/Applications/Shadowrocket.app")?.isValid == true)
-        check("forticlient icon loads", AppIcon.image(forApp: "/Applications/FortiClient.app")?.isValid == true)
+        if FileManager.default.fileExists(atPath: "/Applications/FortiClient.app") {
+            check("forticlient icon file", AppIcon.bundledIconURL(appPath: "/Applications/FortiClient.app")?.lastPathComponent == "electron.icns")
+            check("forticlient icon loads", AppIcon.image(forApp: "/Applications/FortiClient.app")?.isValid == true)
+            }
+        if FileManager.default.fileExists(atPath: "/Applications/Shadowrocket.app") {
+            check("shadowrocket icon loads", AppIcon.image(forApp: "/Applications/Shadowrocket.app")?.isValid == true)
+        }
         check("missing app has no icon", AppIcon.image(forApp: "/Applications/NetLinkMissing.app") == nil)
         check("shadowrocket bundle id", Engine.systemVPNBundleID(kind: "shadowrocket") == "com.liguangming.Shadowrocket")
         check("forticlient bundle id", Engine.systemVPNBundleID(kind: "forticlient") == "com.fortinet.FortiClient")

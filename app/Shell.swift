@@ -73,6 +73,18 @@ final class JournalStore: @unchecked Sendable {
     }
 }
 
+/// 配置文件里的路径是用户可改的，不能原样交给 sudo 去读写或删除。
+/// 只有家目录下、不是符号链接、以 .pid / .log 结尾的文件，才允许在没有权限时回退到 sudo。
+enum SudoPath {
+    static func allowed(_ path: String) -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard url.path.hasPrefix(home + "/") else { return false }
+        guard url.path.hasSuffix(".pid") || url.path.hasSuffix(".log") else { return false }
+        return url.resolvingSymlinksInPath().path == url.path
+    }
+}
+
 enum Shell {
     static func parsePS(_ output: String) -> [Proc] {
         output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { raw in
@@ -201,7 +213,12 @@ enum Shell {
         } else {
             finished.wait()
         }
-        readers.wait()
+        // 子进程退出后，如果它留下的后台进程还抓着管道，不能无限等下去。
+        if readers.wait(timeout: .now() + (timedOut ? 2 : 5)) == .timedOut {
+            try? outPipe.fileHandleForReading.close()
+            try? errPipe.fileHandleForReading.close()
+            _ = readers.wait(timeout: .now() + 1)
+        }
         try? logHandle?.close()
         try? logHandleErr?.close()
 
@@ -226,6 +243,7 @@ enum Shell {
             try handle.seekToEnd()
             try handle.write(contentsOf: Data(text.utf8))
         } catch {
+            guard SudoPath.allowed(path) else { return }
             _ = run("/usr/bin/tee", ["-a", path], stdin: Data(text.utf8), sudo: true)
         }
     }
@@ -234,6 +252,7 @@ enum Shell {
         if let text = readTail(path, maxBytes: 48_000) {
             return lastLines(text, lines)
         }
+        guard SudoPath.allowed(path) else { return "" }
         let result = run("/usr/bin/tail", ["-n", "\(lines)", path], sudo: true, timeout: 8)
         return result.ok ? result.stdout : ""
     }
@@ -242,6 +261,7 @@ enum Shell {
         if let text = try? String(contentsOfFile: path, encoding: .utf8) {
             return text
         }
+        guard SudoPath.allowed(path) else { return nil }
         let result = run("/bin/cat", [path], sudo: true, timeout: 8)
         return result.ok ? result.stdout : nil
     }
@@ -267,25 +287,34 @@ enum Shell {
     }
 }
 
+// struct flock 把同名的 flock(2) 遮住了，直接绑定 C 符号。
+@_silgen_name("flock")
+private func c_flock(_ fd: Int32, _ operation: Int32) -> Int32
+
 enum FileLock {
-    /// flock 跟打开的文件描述符走。必须 CLOEXEC，否则 openconnect / autossh
-    /// 继承这个 fd 后，父进程解锁也不会真正放开。
+    private static let heldKey = "netlink.fileLock.held"
+
+    /// 用 flock：锁跟打开的文件描述（open file description）走，同进程里不同线程也互斥，
+    /// 关掉别的描述符不会放掉它。fcntl 记录锁是按进程算的，做不到这一点。
+    /// 必须 CLOEXEC，否则 openconnect / autossh 继承这个 fd 后，父进程解锁也不会真正放开。
+    /// 同一个线程里嵌套调用直接执行，不会自己等自己。
     static func with(_ body: () -> Void) {
+        let thread = Thread.current
+        if thread.threadDictionary[heldKey] != nil {
+            body()
+            return
+        }
         ConfigStore.ensureDir()
-        let fd = Darwin.open(ConfigStore.lockPath, Darwin.O_CREAT | Darwin.O_RDWR | Darwin.O_CLOEXEC, 0o644)
+        let fd = Darwin.open(ConfigStore.lockPath, Darwin.O_CREAT | Darwin.O_RDWR | Darwin.O_CLOEXEC, 0o600)
         guard fd >= 0 else {
             body()
             return
         }
-        var lock = Darwin.flock()
-        lock.l_type = Int16(Darwin.F_WRLCK)
-        lock.l_whence = Int16(SEEK_SET)
-        lock.l_start = 0
-        lock.l_len = 0
-        while fcntl(fd, F_SETLKW, &lock) != 0 && errno == EINTR {}
+        while c_flock(fd, LOCK_EX) != 0 && errno == EINTR {}
+        thread.threadDictionary[heldKey] = true
         defer {
-            lock.l_type = Int16(Darwin.F_UNLCK)
-            _ = fcntl(fd, F_SETLK, &lock)
+            thread.threadDictionary.removeObject(forKey: heldKey)
+            _ = c_flock(fd, LOCK_UN)
             Darwin.close(fd)
         }
         body()

@@ -62,7 +62,14 @@ enum Spawn {
 
 final class ServiceControl: @unchecked Sendable {
     static let shared = ServiceControl()
-    var stop = false
+    private let lock = NSLock()
+    private var flag = false
+
+    /// 信号处理在另一个队列里写，主循环里读。
+    var stop: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return flag }
+        set { lock.lock(); flag = newValue; lock.unlock() }
+    }
 }
 
 enum Service {
@@ -92,13 +99,14 @@ enum Service {
         while !ServiceControl.shared.stop {
             Thread.sleep(forTimeInterval: 1)
             if ServiceControl.shared.stop { break }
+            // 配置读不了就什么都不做：用默认值去「修复」只会把连接弄坏。
+            if ConfigStore.isCorrupt { continue }
             let config = ConfigStore.load()
-            let procs = Shell.processes()
             let now = Date()
             let vpnFlag = Engine.flag(config.vpnWatchdogFile)
             let tunnelFlag = Engine.flag(config.tunnelWatchdogFile)
-            let shellVPN = procs.contains { Engine.isShellWatchdog($0.command, marker: "_vpn_watchdog") }
-            let shellTunnel = procs.contains { Engine.isShellWatchdog($0.command, marker: "_tunnel_watchdog") }
+            let vpnDue = vpnFlag && now.timeIntervalSince(lastVPN) >= Double(max(config.vpnWatchdogInterval, 5))
+            let tunnelDue = tunnelFlag && now.timeIntervalSince(lastTunnel) >= Double(max(config.tunnelWatchdogInterval, 5))
 
             if !vpnFlag && !tunnelFlag {
                 if idleSince == nil { idleSince = now }
@@ -109,8 +117,13 @@ enum Service {
                 continue
             }
             idleSince = nil
+            // 每秒起一次 ps 太浪费，只在真要检查的时候才看进程。
+            guard vpnDue || tunnelDue else { continue }
+            let procs = Shell.processes()
+            let shellVPN = procs.contains { Engine.isShellWatchdog($0.command, marker: "_vpn_watchdog") }
+            let shellTunnel = procs.contains { Engine.isShellWatchdog($0.command, marker: "_tunnel_watchdog") }
 
-            if vpnFlag && !shellVPN && now.timeIntervalSince(lastVPN) >= Double(max(config.vpnWatchdogInterval, 5)) {
+            if vpnDue && !shellVPN {
                 lastVPN = now
                 let healthy = Engine.vpnHealthy(config: config, procs: procs)
                 if healthy {
@@ -128,15 +141,15 @@ enum Service {
                 }
             }
 
-            if tunnelFlag && !shellTunnel && now.timeIntervalSince(lastTunnel) >= Double(max(config.tunnelWatchdogInterval, 5)) {
+            if tunnelDue && !shellTunnel {
                 lastTunnel = now
                 let healthy = Engine.tunnelHealthy(config: config)
                 if healthy {
                     tunnelFails = 0
                 } else {
                     tunnelFails += 1
-                    Engine.emitLog(config.tunnelLogFile, "隧道健康检查失败")
-                    if Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: tunnelFails, threshold: 1) {
+                    Engine.emitLog(config.tunnelLogFile, "隧道健康检查失败（\(tunnelFails)/\(config.tunnelFailThreshold)）")
+                    if Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: tunnelFails, threshold: config.tunnelFailThreshold) {
                         FileLock.with {
                             Engine.restartTunnelPreservingFlag(config: config)
                         }

@@ -1192,7 +1192,7 @@ private struct PathConfigSheet: View {
                     get: { String(localPort) },
                     set: { localPort = Int($0.filter(\.isNumber)) ?? localPort }
                 ), prompt: "9000")
-                field("目标主机", text: $targetHost, prompt: "10.62.1.101")
+                field("目标主机", text: $targetHost, prompt: "10.0.0.10")
                 field("目标端口", text: Binding(
                     get: { String(targetPort) },
                     set: { targetPort = Int($0.filter(\.isNumber)) ?? targetPort }
@@ -1427,7 +1427,7 @@ struct SettingsView: View {
                         }
                     }
                     Button("加一条") {
-                        draft.forwards.append(Forward(name: "新转发", localPort: 9000, targetHost: "10.62.1.10", targetPort: 80))
+                        draft.forwards.append(Forward(name: "新转发", localPort: 9000, targetHost: "10.0.0.10", targetPort: 80))
                     }
                     Text("改完要重启隧道才生效。健康检查也按这里的端口来。")
                         .font(.callout)
@@ -1462,7 +1462,7 @@ struct SettingsView: View {
             HStack {
                 Button("关闭") { dismiss() }
                 Spacer()
-                Button("恢复默认转发") { draft.forwards = Forward.bundled }
+                Button("恢复默认转发") { draft.forwards = Forward.example }
                 Button("保存配置") { saveConfig() }
                     .keyboardShortcut(.defaultAction)
             }

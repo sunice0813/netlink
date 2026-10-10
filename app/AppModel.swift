@@ -327,9 +327,29 @@ final class AppModel {
         if !problems.isEmpty {
             throw SaveError.message(problems.joined(separator: "\n"))
         }
-        try ConfigStore.save(next)
+        mergeRuntimeState(into: &next)
+        try ConfigStore.save(next, overwriteCorrupt: true)
         config = next
         configWarning = nil
+    }
+
+    /// 后台操作会在磁盘上改 enabled、删转发和 VPN，内存里的 `config` 最多晚 6 秒才跟上。
+    /// 界面保存时不能把这些改动写回旧值：enabled 以磁盘为准，已被后台删掉的不再复活。
+    private func mergeRuntimeState(into next: inout AppConfig) {
+        guard let disk = ConfigStore.loadIfValid() else { return }
+        let diskForwards = Dictionary(uniqueKeysWithValues: disk.forwards.map { ($0.id, $0) })
+        let knownForwards = Set(config.forwards.map(\.id))
+        next.forwards = next.forwards.compactMap { forward in
+            if let onDisk = diskForwards[forward.id] {
+                var merged = forward
+                merged.enabled = onDisk.enabled
+                return merged
+            }
+            return knownForwards.contains(forward.id) ? nil : forward
+        }
+        let diskVPNs = Set(disk.vpns.map(\.id))
+        let knownVPNs = Set(config.vpns.map(\.id))
+        next.vpns.removeAll { knownVPNs.contains($0.id) && !diskVPNs.contains($0.id) }
     }
 
     func saveCredential(file: String? = nil, host: String, user: String, password: String) throws {
@@ -468,10 +488,10 @@ final class AppModel {
         let name = config.forwards.first { $0.localPort == port }?.name ?? "转发"
         run(.forwardDisconnect(port), "正在移除 \(name)") {
             Engine.disconnectForward(localPort: port)
-            var config = ConfigStore.load()
-            config.forwards.removeAll { $0.localPort == port }
-            config.normalize()
-            try? ConfigStore.save(config)
+            ConfigStore.mutate { config in
+                config.forwards.removeAll { $0.localPort == port }
+                config.normalize()
+            }
         }
     }
 
@@ -503,10 +523,10 @@ final class AppModel {
             if !running.isEmpty, !host.isEmpty, running.contains(host) || host.contains(running) {
                 Engine.disconnectVPN()
             }
-            var config = ConfigStore.load()
-            config.vpns.removeAll { $0.id == id }
-            config.normalize()
-            try? ConfigStore.save(config)
+            ConfigStore.mutate { config in
+                config.vpns.removeAll { $0.id == id }
+                config.normalize()
+            }
             let path = PathExpander.expand(file)
             if !path.hasSuffix("/.internalvpn") {
                 try? FileManager.default.removeItem(atPath: path)

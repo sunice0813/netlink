@@ -13,8 +13,11 @@ struct Forward: Codable, Equatable, Identifiable {
     var enabled: Bool
     /// 空则走主跳板。
     var jumpID: UUID?
+    /// 怎么判断这条转发是通的。http：请求一次 HTTP，端到端；tcp：只看本地端口能不能连上，
+    /// 给不是 HTTP 的目标（数据库、SSH 等）用。tcp 只能说明 autossh 在听，不代表远端可达。
+    var check: ForwardCheck
 
-    init(id: UUID = UUID(), name: String, localPort: Int, targetHost: String, targetPort: Int, openHost: String = "", enabled: Bool = true, jumpID: UUID? = nil) {
+    init(id: UUID = UUID(), name: String, localPort: Int, targetHost: String, targetPort: Int, openHost: String = "", enabled: Bool = true, jumpID: UUID? = nil, check: ForwardCheck = .http) {
         self.id = id
         self.name = name
         self.localPort = localPort
@@ -23,6 +26,7 @@ struct Forward: Codable, Equatable, Identifiable {
         self.openHost = Self.resolvedOpenHost(name: name, openHost: openHost)
         self.enabled = enabled
         self.jumpID = jumpID
+        self.check = check
     }
 
     var target: String { "\(targetHost):\(targetPort)" }
@@ -48,20 +52,17 @@ struct Forward: Codable, Equatable, Identifiable {
         return parts.url
     }
 
-    static let bundled: [Forward] = [
-        Forward(name: "GitLab", localPort: 80, targetHost: "10.62.1.101", targetPort: 80, openHost: "git.techtanium.internal"),
-        Forward(name: "JumpServer", localPort: 8080, targetHost: "10.62.1.10", targetPort: 80),
+    /// 首次启动时的示例，换成自己的目标即可。
+    static let example: [Forward] = [
+        Forward(name: "示例网站", localPort: 8080, targetHost: "10.0.0.10", targetPort: 80),
     ]
 
     private static func resolvedOpenHost(name: String, openHost: String) -> String {
-        let trimmed = openHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
-        if name == "GitLab" { return "git.techtanium.internal" }
-        return ""
+        openHost.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, localPort, targetHost, targetPort, openHost, enabled, jumpID
+        case id, name, localPort, targetHost, targetPort, openHost, enabled, jumpID, check
     }
 
     init(from decoder: Decoder) throws {
@@ -75,7 +76,13 @@ struct Forward: Codable, Equatable, Identifiable {
         openHost = Self.resolvedOpenHost(name: name, openHost: storedHost)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         jumpID = try container.decodeIfPresent(UUID.self, forKey: .jumpID)
+        check = try container.decodeIfPresent(ForwardCheck.self, forKey: .check) ?? .http
     }
+}
+
+enum ForwardCheck: String, Codable {
+    case http
+    case tcp
 }
 
 struct Jump: Codable, Equatable, Identifiable {
@@ -175,20 +182,24 @@ struct AppConfig: Codable, Equatable {
     var vpnPidFile: String = "~/.openconnect.pid"
     var vpnLogFile: String = "~/.vpn.log"
     var vpnWatchdogFile: String = "~/.openconnect.watchdog"
-    var routeMarker: String = "172.16.88"
-    var pingHost: String = "172.16.88.238"
+    /// 连上 VPN 后 netstat -rn 里应该出现的网段片段。
+    var routeMarker: String = "10.0.0"
+    /// VPN 连通性探测。写 `主机:端口` 用 TCP 连接，不带端口则 ping（很多内网主机不回 ICMP）。
+    var pingHost: String = "10.0.0.1:22"
     var reconnectTimeout: Int = 30
     var vpnWatchdogInterval: Int = 15
     var vpnFailThreshold: Int = 2
 
-    var jumpHost: String = "appdev@10.62.11.31"
-    var identityFile: String = "~/.ssh/appdev"
+    var jumpHost: String = "user@jump.example.com"
+    var identityFile: String = "~/.ssh/id_ed25519"
     var tunnelLogFile: String = "~/.tunnel.log"
     var tunnelWatchdogFile: String = "~/.tunnel.watchdog"
     var tunnelWatchdogInterval: Int = 20
-    var forwards: [Forward] = Forward.bundled
+    /// 隧道连续几次检查不通才重启。一次偶发超时不应该把全部转发拆掉重连。
+    var tunnelFailThreshold: Int = 2
+    var forwards: [Forward] = Forward.example
     var jumps: [Jump] = [
-        Jump(id: Jump.primary, name: "跳板", host: "appdev@10.62.11.31", identityFile: "~/.ssh/appdev"),
+        Jump(id: Jump.primary, name: "跳板", host: "user@jump.example.com", identityFile: "~/.ssh/id_ed25519"),
     ]
     var vpns: [VPNProfile] = [
         VPNProfile(id: VPNProfile.primary, name: "VPN", credentialFile: "~/.internalvpn"),
@@ -207,7 +218,7 @@ struct AppConfig: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case credentialFile, vpnPidFile, vpnLogFile, vpnWatchdogFile
         case routeMarker, pingHost, reconnectTimeout, vpnWatchdogInterval, vpnFailThreshold
-        case jumpHost, identityFile, tunnelLogFile, tunnelWatchdogFile, tunnelWatchdogInterval
+        case jumpHost, identityFile, tunnelLogFile, tunnelWatchdogFile, tunnelWatchdogInterval, tunnelFailThreshold
         case forwards, jumps, vpns, machineName, layout, layoutVersion, openconnectPath, autosshPath
     }
 
@@ -230,6 +241,7 @@ struct AppConfig: Codable, Equatable {
         tunnelLogFile = try container.decodeIfPresent(String.self, forKey: .tunnelLogFile) ?? defaults.tunnelLogFile
         tunnelWatchdogFile = try container.decodeIfPresent(String.self, forKey: .tunnelWatchdogFile) ?? defaults.tunnelWatchdogFile
         tunnelWatchdogInterval = try container.decodeIfPresent(Int.self, forKey: .tunnelWatchdogInterval) ?? defaults.tunnelWatchdogInterval
+        tunnelFailThreshold = try container.decodeIfPresent(Int.self, forKey: .tunnelFailThreshold) ?? defaults.tunnelFailThreshold
         forwards = try container.decodeIfPresent([Forward].self, forKey: .forwards) ?? defaults.forwards
         jumps = try container.decodeIfPresent([Jump].self, forKey: .jumps) ?? []
         vpns = try container.decodeIfPresent([VPNProfile].self, forKey: .vpns) ?? []
@@ -237,8 +249,8 @@ struct AppConfig: Codable, Equatable {
         layout = try container.decodeIfPresent([String: LayoutPoint].self, forKey: .layout) ?? [:]
         layoutVersion = try container.decodeIfPresent(Int.self, forKey: .layoutVersion) ?? 0
         openconnectPath = try container.decodeIfPresent(String.self, forKey: .openconnectPath) ?? defaults.openconnectPath
-        normalize()
         autosshPath = try container.decodeIfPresent(String.self, forKey: .autosshPath) ?? defaults.autosshPath
+        normalize()
     }
 }
 
@@ -337,6 +349,9 @@ enum ConfigCheck {
             if !jump.host.contains("@") || jump.host.hasPrefix("@") || jump.host.hasSuffix("@") {
                 found.append("\(jump.name) 要写成 user@host")
             }
+            if jump.host.hasPrefix("-") || jump.host.contains(where: \.isWhitespace) || jump.identityFile.hasPrefix("-") {
+                found.append("\(jump.name) 的主机或密钥不能以 - 开头，也不能含空白")
+            }
             if jump.identityFile.trimmingCharacters(in: .whitespaces).isEmpty {
                 found.append("\(jump.name) 缺少私钥")
             }
@@ -375,13 +390,22 @@ enum ConfigCheck {
             }
             if forward.targetHost.trimmingCharacters(in: .whitespaces).isEmpty {
                 found.append("\(forward.name) 缺少目标主机")
+            } else if forward.targetHost.hasPrefix("-") || !forward.targetHost.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }) {
+                found.append("\(forward.name) 的目标主机只能含字母、数字、点和横线")
             }
         }
         if config.routeMarker.trimmingCharacters(in: .whitespaces).isEmpty || config.pingHost.trimmingCharacters(in: .whitespaces).isEmpty {
             found.append("VPN 路由标记和网关地址不能为空")
         }
-        if config.vpnFailThreshold < 1 {
-            found.append("VPN 连续失败次数至少为 1")
+        for (label, path, suffix) in [
+            ("VPN 进程文件", config.vpnPidFile, ".pid"),
+            ("VPN 日志", config.vpnLogFile, ".log"),
+            ("隧道日志", config.tunnelLogFile, ".log"),
+        ] where !SudoPath.allowed(PathExpander.expand(path)) {
+            found.append("\(label) 必须在家目录下，以 \(suffix) 结尾，且不是符号链接")
+        }
+        if config.vpnFailThreshold < 1 || config.tunnelFailThreshold < 1 {
+            found.append("连续失败次数至少为 1")
         }
         if config.vpnWatchdogInterval < 5 || config.tunnelWatchdogInterval < 5 {
             found.append("检查间隔至少 5 秒")
@@ -441,6 +465,11 @@ extension AppConfig {
 
     func vpns(via id: UUID) -> [VPNProfile] {
         vpns.filter { $0.viaID == id }
+    }
+
+    var primaryJump: Jump {
+        jumps.first { $0.id == Jump.primary } ?? jumps.first
+            ?? Jump(id: Jump.primary, name: "跳板", host: jumpHost, identityFile: identityFile)
     }
 
     func jump(for forward: Forward) -> Jump {
@@ -602,7 +631,7 @@ enum Credentials {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
             guard let index = line.firstIndex(of: "=") else { continue }
-            let key = String(line[..<index])
+            let key = String(line[..<index]).trimmingCharacters(in: .whitespaces)
             let value = String(line[line.index(after: index)...])
             switch key {
             case "host": host = value.trimmingCharacters(in: .whitespaces)
@@ -637,21 +666,54 @@ enum Credentials {
         } else {
             throw CredentialError.missingPassword
         }
+        for value in [trimmedHost, trimmedUser, password] where value.contains(where: \.isNewline) {
+            throw CredentialError.invalidCharacter
+        }
         let path = PathExpander.expand(file)
         let text = "host=\(trimmedHost)\nuser=\(trimmedUser)\npassword=\(password)\n"
-        try text.write(toFile: path, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        try writePrivate(Data(text.utf8), to: path)
+    }
+
+    /// 先在同一目录里以 0600 建临时文件再改名，密码不会有哪怕一瞬间是别人可读的。
+    private static func writePrivate(_ data: Data, to path: String) throws {
+        let temp = "\(path).tmp.\(getpid())"
+        _ = unlink(temp)
+        let fd = Darwin.open(temp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw CredentialError.writeFailed(String(cString: strerror(errno))) }
+        var written = 0
+        let ok = data.withUnsafeBytes { buffer -> Bool in
+            while written < buffer.count {
+                let n = Darwin.write(fd, buffer.baseAddress!.advanced(by: written), buffer.count - written)
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    return false
+                }
+                written += n
+            }
+            return true
+        }
+        let synced = ok && fsync(fd) == 0
+        Darwin.close(fd)
+        guard synced, rename(temp, path) == 0 else {
+            let reason = String(cString: strerror(errno))
+            _ = unlink(temp)
+            throw CredentialError.writeFailed(reason)
+        }
     }
 }
 
 enum CredentialError: LocalizedError {
     case emptyAccount
     case missingPassword
+    case invalidCharacter
+    case writeFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .emptyAccount: return "主机和用户名不能为空"
         case .missingPassword: return "凭据文件里还没有密码，需要填写一次"
+        case .invalidCharacter: return "主机、用户名和密码里不能有换行"
+        case .writeFailed(let reason): return "写不进凭据文件：\(reason)"
         }
     }
 }
@@ -693,7 +755,18 @@ enum Prefs {
     }
 }
 
+enum ConfigError: LocalizedError {
+    case unreadable
+
+    var errorDescription: String? {
+        "配置文件读不了，已保留原文件。先修好它，或在应用里点保存覆盖（会先备份成 config.json.bak）"
+    }
+}
+
 enum ConfigStore {
+    /// 后台操作和界面都会读改写配置。递归锁：mutate 里面还会调 save。
+    private static let writeLock = NSRecursiveLock()
+
     static var directory: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/NetLink", isDirectory: true)
@@ -704,9 +777,16 @@ enum ConfigStore {
     static var servicePIDPath: String { directory.appendingPathComponent("service.pid").path }
     static var serviceLogPath: String { directory.appendingPathComponent("service.log").path }
     static var lockPath: String { directory.appendingPathComponent("operation.lock").path }
+    /// 守护重启 VPN 时用哪份凭据：最近一次连上的那个。
+    static var activeCredentialPath: String { directory.appendingPathComponent("vpn.credential").path }
 
     static func ensureDir() {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    /// 文件在，但解不出来。这时 load() 给的是默认值，不能拿它去覆盖原文件，也不该拿它去连接。
+    static var isCorrupt: Bool {
+        FileManager.default.fileExists(atPath: file.path) && loadIfValid() == nil
     }
 
     static func load() -> AppConfig {
@@ -724,13 +804,33 @@ enum ConfigStore {
         return try? JSONDecoder().decode(AppConfig.self, from: data)
     }
 
-    static func save(_ config: AppConfig) throws {
+    /// 原文件解不出来时默认拒绝写入。用户在界面里明确点保存才允许覆盖，并先留一份备份。
+    static func save(_ config: AppConfig, overwriteCorrupt: Bool = false) throws {
+        writeLock.lock()
+        defer { writeLock.unlock() }
         ensureDir()
+        if isCorrupt {
+            guard overwriteCorrupt else { throw ConfigError.unreadable }
+            let backup = directory.appendingPathComponent("config.json.bak")
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.copyItem(at: file, to: backup)
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(config)
         try data.write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
+    /// 读最新的、改、写，整个过程互斥。后台操作改配置都走这里，不要自己 load 再 save。
+    @discardableResult
+    static func mutate(_ body: (inout AppConfig) -> Void) -> Bool {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        guard !isCorrupt else { return false }
+        var config = load()
+        body(&config)
+        return (try? save(config)) != nil
     }
 
     static func setWanted(_ on: Bool) {

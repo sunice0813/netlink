@@ -18,6 +18,10 @@ swiftc -parse-as-library -O -swift-version 5 \
   "$APP_DIR"/*.swift \
   -o "$BUILD_DIR/$EXEC_NAME"
 
+echo "▸ 自检"
+"$BUILD_DIR/$EXEC_NAME" --self-test | grep -v '^ok' || true
+"$BUILD_DIR/$EXEC_NAME" --self-test >/dev/null
+
 echo "▸ 组装 App"
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"

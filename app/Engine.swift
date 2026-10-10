@@ -132,8 +132,18 @@ enum Engine {
         return (vpn, tunnel)
     }
 
+    /// 配置文件坏了的时候 load() 给的是默认值，拿它去连接只会连错地方。
+    private static func configUsable() -> Bool {
+        if ConfigStore.isCorrupt {
+            emit("配置文件读不了，先在应用里修好或重新保存，再连接")
+            return false
+        }
+        return true
+    }
+
     static func connectVPN(enableWatch: Bool, takeOverWatch: Bool, credentialFile: String? = nil) {
         FileLock.with {
+            guard configUsable() else { return }
             let config = ConfigStore.load()
             var procs = Shell.processes()
             if processAlive(config: config, procs: procs) {
@@ -478,12 +488,14 @@ enum Engine {
 
     static func connectTunnel(enableWatch: Bool, takeOverWatch: Bool, startVPNIfNeeded: Bool) {
         FileLock.with {
-            var config = ConfigStore.load()
-            for index in config.forwards.indices {
-                config.forwards[index].enabled = true
+            guard configUsable() else { return }
+            ConfigStore.mutate { config in
+                for index in config.forwards.indices {
+                    config.forwards[index].enabled = true
+                }
             }
-            try? ConfigStore.save(config)
-            let pending = config.forwards.filter { !httpUp($0.localPort) }
+            let config = ConfigStore.load()
+            let pending = config.forwards.filter { !forwardUp($0) }
             if pending.isEmpty {
                 emit("隧道已在运行")
                 arrangeTunnelWatch(config: config, procs: Shell.processes(), enable: enableWatch, takeOver: takeOverWatch)
@@ -519,15 +531,18 @@ enum Engine {
 
     static func connectForward(localPort: Int, enableWatch: Bool, startVPNIfNeeded: Bool) {
         FileLock.with {
-            var config = ConfigStore.load()
-            guard let index = config.forwards.firstIndex(where: { $0.localPort == localPort }) else {
+            guard configUsable() else { return }
+            ConfigStore.mutate { config in
+                if let index = config.forwards.firstIndex(where: { $0.localPort == localPort }) {
+                    config.forwards[index].enabled = true
+                }
+            }
+            let config = ConfigStore.load()
+            guard let forward = config.forwards.first(where: { $0.localPort == localPort }) else {
                 emit("没有本地端口 \(localPort) 的转发")
                 return
             }
-            config.forwards[index].enabled = true
-            try? ConfigStore.save(config)
-            let forward = config.forwards[index]
-            if httpUp(forward.localPort) {
+            if forwardUp(forward) {
                 emit("\(forward.name) 已在运行")
                 arrangeTunnelWatch(config: config, procs: Shell.processes(), enable: enableWatch, takeOver: false)
                 return
@@ -555,14 +570,17 @@ enum Engine {
 
     static func disconnectForward(localPort: Int) {
         FileLock.with {
-            var config = ConfigStore.load()
-            guard let index = config.forwards.firstIndex(where: { $0.localPort == localPort }) else {
+            guard configUsable() else { return }
+            ConfigStore.mutate { config in
+                if let index = config.forwards.firstIndex(where: { $0.localPort == localPort }) {
+                    config.forwards[index].enabled = false
+                }
+            }
+            let config = ConfigStore.load()
+            guard let forward = config.forwards.first(where: { $0.localPort == localPort }) else {
                 emit("没有本地端口 \(localPort) 的转发")
                 return
             }
-            let forward = config.forwards[index]
-            config.forwards[index].enabled = false
-            try? ConfigStore.save(config)
             if shellWatchdogAlive("_tunnel_watchdog") {
                 stopShellWatchdog("_tunnel_watchdog")
                 emit("已停掉终端里的隧道守护，避免它把这条转发重新拉起来")
@@ -586,11 +604,12 @@ enum Engine {
 
     static func disconnectTunnel() {
         FileLock.with {
-            var config = ConfigStore.load()
-            for index in config.forwards.indices {
-                config.forwards[index].enabled = false
+            ConfigStore.mutate { config in
+                for index in config.forwards.indices {
+                    config.forwards[index].enabled = false
+                }
             }
-            try? ConfigStore.save(config)
+            let config = ConfigStore.load()
             writeFlag(config.tunnelWatchdogFile, false)
             stopShellWatchdog("_tunnel_watchdog")
             stopTunnelProcesses(config)
@@ -610,8 +629,7 @@ enum Engine {
         connectTunnel(enableWatch: enableWatch, takeOverWatch: true, startVPNIfNeeded: true)
     }
 
-    static func disconnectAll(enableNothing: Bool = true) {
-        _ = enableNothing
+    static func disconnectAll() {
         disconnectTunnel()
         disconnectVPN()
         stopAppService()
@@ -680,7 +698,7 @@ enum Engine {
     static func tunnelHealthy(config: AppConfig) -> Bool {
         let wanted = config.forwards.filter(\.enabled)
         guard !wanted.isEmpty else { return true }
-        for forward in wanted where !httpUp(forward.localPort) {
+        for forward in wanted where !forwardUp(forward) {
             return false
         }
         return true
@@ -694,13 +712,16 @@ enum Engine {
         stopOpenConnect(config)
         sleep(3)
         guard flag(config.vpnWatchdogFile) else { return }
-        _ = startOpenConnect(config)
+        // 重连最近一次连上的那个账号，而不是永远回到主 VPN。
+        let last = (try? String(contentsOfFile: ConfigStore.activeCredentialPath, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = startOpenConnect(config, credentialFile: (last?.isEmpty == false) ? last : nil)
     }
 
     static func restartTunnelPreservingFlag(config: AppConfig) {
         guard flag(config.tunnelWatchdogFile) else { return }
         guard !shellWatchdogAlive("_tunnel_watchdog") else { return }
-        let down = config.forwards.filter { $0.enabled && !httpUp($0.localPort) }
+        let down = config.forwards.filter { $0.enabled && !forwardUp($0) }
         guard !down.isEmpty else { return }
         emitLog(config.tunnelLogFile, "隧道异常，重连 \(down.map(\.name).joined(separator: "、"))")
         for forward in down {
@@ -817,7 +838,7 @@ enum Engine {
                 browseURL: forward.browseURL?.absoluteString ?? "http://127.0.0.1:\(forward.localPort)/",
                 enabled: forward.enabled,
                 listening: !listeners(forward.localPort).isEmpty,
-                httpOK: httpUp(forward.localPort)
+                httpOK: forwardUp(forward)
             )
         }.sorted { $0.localPort < $1.localPort }
         let wanted = snap.ports.filter(\.enabled)
@@ -855,6 +876,7 @@ enum Engine {
         let pidPath = PathExpander.expand(config.vpnPidFile)
         let logPath = PathExpander.expand(config.vpnLogFile)
         try? FileManager.default.removeItem(atPath: pidPath)
+        try? PathExpander.expand(file).write(toFile: ConfigStore.activeCredentialPath, atomically: true, encoding: .utf8)
         let payload = Data("\(credential.user)\n\(credential.password)\n".utf8)
         emitLog(config.vpnLogFile, "开始连接 VPN")
         let result = Shell.run(
@@ -900,7 +922,7 @@ enum Engine {
         }
         let pidPath = PathExpander.expand(config.vpnPidFile)
         try? FileManager.default.removeItem(atPath: pidPath)
-        if FileManager.default.fileExists(atPath: pidPath) {
+        if FileManager.default.fileExists(atPath: pidPath), SudoPath.allowed(pidPath) {
             _ = Shell.run("/bin/rm", ["-f", pidPath], sudo: true, timeout: 8)
         }
     }
@@ -925,9 +947,19 @@ enum Engine {
         return nil
     }
 
+    /// 命令行第一个词的文件名。用它判断「是不是这个程序」，不看参数里碰巧出现的字符串。
+    static func executableName(_ command: String) -> String {
+        let first = command.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? ""
+        return (first as NSString).lastPathComponent
+    }
+
+    static func isOpenConnect(_ command: String) -> Bool {
+        executableName(command) == "openconnect" && command.contains("--protocol=anyconnect")
+    }
+
     private static func openConnectProcesses(in procs: [Proc]? = nil) -> [Proc] {
         let list = procs ?? Shell.processes()
-        return list.filter { $0.command.contains("openconnect") && $0.command.contains("anyconnect") }
+        return list.filter { isOpenConnect($0.command) }
     }
 
     // MARK: - Tunnel process
@@ -966,15 +998,15 @@ enum Engine {
         for proc in procs where isOurAutossh(proc, config: config) || isOurForwardingSSH(proc, config: config) {
             signal(proc.pid, sudo: true)
         }
-        for forward in config.forwards {
-            for pid in listeners(forward.localPort) {
-                signal(pid, sudo: true)
-            }
-        }
         sleep(1)
+        let rest = Shell.processes()
         for forward in config.forwards {
-            for pid in listeners(forward.localPort) {
+            let owned = ownedListeners(forward.localPort, config: config, procs: rest)
+            for pid in owned.ours {
                 signal(pid, sudo: true, force: true)
+            }
+            if let pid = owned.foreign.first {
+                emit("\(forward.name) 的端口 \(forward.localPort) 被别的程序占着（PID \(pid)），没有动它")
             }
         }
     }
@@ -984,12 +1016,13 @@ enum Engine {
         for proc in procs {
             signal(proc.pid, sudo: true)
         }
-        for pid in listeners(forward.localPort) {
-            signal(pid, sudo: true)
-        }
         sleep(1)
-        for pid in listeners(forward.localPort) {
+        let owned = ownedListeners(forward.localPort, config: config, procs: Shell.processes())
+        for pid in owned.ours {
             signal(pid, sudo: true, force: true)
+        }
+        if let pid = owned.foreign.first {
+            emit("\(forward.name) 的端口 \(forward.localPort) 被别的程序占着（PID \(pid)），没有动它")
         }
         if restoreOthers {
             restoreEnabled(config, except: forward.localPort)
@@ -1011,7 +1044,7 @@ enum Engine {
     }
 
     private static func ensureJump(_ config: AppConfig, jump: Jump? = nil, startVPNIfNeeded: Bool) -> Bool {
-        let target = jump ?? config.jumps.first ?? Jump(id: Jump.primary, name: "跳板", host: config.jumpHost, identityFile: config.identityFile)
+        let target = jump ?? config.primaryJump
         emit("检查跳板机连通性")
         if jumpReachable(config, jump: target, timeout: 5) {
             emit("跳板机可达")
@@ -1024,7 +1057,10 @@ enum Engine {
         }
         if !processAlive(config: config, procs: Shell.processes()) {
             stopShellWatchdog("_vpn_watchdog")
-            switch startOpenConnect(config) {
+            // 跳板挂在哪个 VPN 下就用哪个账号；挂的是系统 VPN（没法在这里启动）就退回主 VPN。
+            let owner = config.vpn(for: target)
+            let credential = owner.isSystemVPN ? nil : owner.credentialFile
+            switch startOpenConnect(config, credentialFile: credential) {
             case .connected(let pid, let seconds):
                 emit("VPN 已连接（PID \(pid)，\(seconds) 秒）")
                 arrangeVPNWatch(config: config, procs: Shell.processes(), enable: Prefs.vpnAutoReconnect, takeOver: true)
@@ -1045,17 +1081,33 @@ enum Engine {
         return true
     }
 
-    private static func isOurAutossh(_ proc: Proc, config: AppConfig) -> Bool {
-        guard proc.command.contains("autossh") else { return false }
-        let hosts = config.jumps.map(\.host) + [config.jumpHost]
-        let keys = (config.jumps.map(\.identityFile) + [config.identityFile]).map { PathExpander.expand($0) }
-        return hosts.contains { proc.command.contains($0) } || keys.contains { proc.command.contains($0) }
+    /// 本应用起的 autossh / ssh 都带 `-E <隧道日志>`，用它认「自己的」进程，
+    /// 手动开的 ssh -L 或别的程序不会被误杀。
+    private static func hasOurLogMarker(_ command: String, config: AppConfig) -> Bool {
+        command.contains("-E \(PathExpander.expand(config.tunnelLogFile))")
     }
 
-    private static func isOurForwardingSSH(_ proc: Proc, config: AppConfig) -> Bool {
-        guard proc.command.contains("ssh"), proc.command.contains("-L"), !proc.command.contains("autossh") else { return false }
-        let hosts = config.jumps.map(\.host) + [config.jumpHost]
-        return hosts.contains { proc.command.contains($0) }
+    static func isOurAutossh(_ proc: Proc, config: AppConfig) -> Bool {
+        executableName(proc.command) == "autossh" && hasOurLogMarker(proc.command, config: config)
+    }
+
+    /// autossh 拉起的 ssh 子进程。
+    static func isOurForwardingSSH(_ proc: Proc, config: AppConfig) -> Bool {
+        executableName(proc.command) == "ssh" && proc.command.contains("-L") && hasOurLogMarker(proc.command, config: config)
+    }
+
+    /// 端口上的监听者里，只有我们自己的隧道进程才会被结束。别的程序占着端口，只提示不动手。
+    private static func ownedListeners(_ port: Int, config: AppConfig, procs: [Proc]) -> (ours: [Int32], foreign: [Int32]) {
+        var ours: [Int32] = []
+        var foreign: [Int32] = []
+        for pid in listeners(port) {
+            if let proc = procs.first(where: { $0.pid == pid }), isOurAutossh(proc, config: config) || isOurForwardingSSH(proc, config: config) {
+                ours.append(pid)
+            } else {
+                foreign.append(pid)
+            }
+        }
+        return (ours, foreign)
     }
 
     private static func autosshAlive(config: AppConfig, procs: [Proc]) -> Bool {
@@ -1063,7 +1115,7 @@ enum Engine {
     }
 
     private static func jumpReachable(_ config: AppConfig, jump: Jump? = nil, timeout: Int) -> Bool {
-        let target = jump ?? config.jumps.first ?? Jump(id: Jump.primary, name: "跳板", host: config.jumpHost, identityFile: config.identityFile)
+        let target = jump ?? config.primaryJump
         let result = Shell.run(
             "/usr/bin/ssh",
             [
@@ -1102,10 +1154,10 @@ enum Engine {
     private static func waitForForward(_ forward: Forward, seconds: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
-            if httpUp(forward.localPort) { return true }
+            if forwardUp(forward) { return true }
             sleep(1)
         }
-        return httpUp(forward.localPort)
+        return forwardUp(forward)
     }
 
     private static func occupiedPort(_ config: AppConfig) -> (port: Int, pid: Int32)? {
@@ -1139,6 +1191,17 @@ enum Engine {
         }
         let result = Shell.run("/sbin/ping", ["-c", "1", "-W", "3000", "-t", "4", host], timeout: 6)
         return result.ok
+    }
+
+    private static func forwardUp(_ forward: Forward) -> Bool {
+        switch forward.check {
+        case .http: return httpUp(forward.localPort)
+        case .tcp: return tcpUp(forward.localPort)
+        }
+    }
+
+    private static func tcpUp(_ port: Int) -> Bool {
+        Shell.run("/usr/bin/nc", ["-z", "-w", "3", "127.0.0.1", String(port)], timeout: 5).ok
     }
 
     private static func httpUp(_ port: Int) -> Bool {
