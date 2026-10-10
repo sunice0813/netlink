@@ -1384,6 +1384,8 @@ struct SettingsView: View {
     @State private var password = ""
     @State private var note = ""
     @State private var loaded = false
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var loginStatus = SMAppService.mainApp.status
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1440,12 +1442,23 @@ struct SettingsView: View {
                     TextField("连续失败几次才重启", value: $draft.vpnFailThreshold, format: .number)
                     TextField("隧道检查间隔（秒）", value: $draft.tunnelWatchdogInterval, format: .number)
                 }
-                Section("登录时打开") {
-                    Button(loginTitle) { toggleLogin() }
-                    if !model.loginMessage.isEmpty {
-                        Text(model.loginMessage).foregroundStyle(.secondary)
+                Section("开机启动") {
+                    Toggle("登录后自动打开本应用", isOn: Binding(
+                        get: { launchAtLogin },
+                        set: { setLaunchAtLogin($0) }
+                    ))
+                    if loginStatus == .requiresApproval {
+                        HStack {
+                            Text("需要在系统设置的「登录项」里允许")
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Button("打开系统设置") { SMAppService.openSystemSettingsLoginItems() }
+                        }
                     }
-                    Text("登录项只是把这个窗口应用打开。自动重连要看守护标记，不看是不是开机启动。")
+                    if !model.loginMessage.isEmpty {
+                        Text(model.loginMessage).foregroundStyle(.red)
+                    }
+                    Text("只是登录后把应用打开，不会自动连接。自动重连看各卡片上的开关。应用换了位置需要重新打开这个开关，建议放在「应用程序」里。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -1478,14 +1491,6 @@ struct SettingsView: View {
         }
     }
 
-    private var loginTitle: String {
-        switch SMAppService.mainApp.status {
-        case .enabled: return "已设为登录时打开，点此取消"
-        case .requiresApproval: return "需要在系统设置里允许登录项"
-        default: return "登录时打开"
-        }
-    }
-
     private func saveConfig() {
         if let index = draft.jumps.firstIndex(where: { $0.id == Jump.primary }) ?? draft.jumps.indices.first {
             draft.jumps[index].host = draft.jumpHost
@@ -1513,17 +1518,20 @@ struct SettingsView: View {
         }
     }
 
-    private func toggleLogin() {
+    private func setLaunchAtLogin(_ on: Bool) {
         do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
+            if on {
                 try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
             }
             model.loginMessage = ""
         } catch {
             model.loginMessage = error.localizedDescription
         }
+        // 以系统实际状态为准：注册可能需要用户批准，也可能失败。
+        loginStatus = SMAppService.mainApp.status
+        launchAtLogin = loginStatus == .enabled || (on && loginStatus == .requiresApproval)
     }
 }
 
