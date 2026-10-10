@@ -101,7 +101,7 @@ enum Shell {
     static func processes() -> [Proc] {
         // 进程多、命令行长的时候 ps 输出会超过默认上限，后面（pid 大的）会被截掉，
         // 新起的进程就看不见了，所以这里放宽。
-        let result = run("/bin/ps", ["-ax", "-o", "pid=,command="], maxOutput: 8_000_000)
+        let result = run("/bin/ps", ["-ax", "-o", "pid=,command="], timeout: 8, maxOutput: 8_000_000)
         return parsePS(result.stdout)
     }
 
@@ -133,8 +133,6 @@ enum Shell {
             process.environment = merged
         }
 
-        let outPipe = Pipe()
-        let errPipe = Pipe()
         var logHandle: FileHandle?
         var logHandleErr: FileHandle?
         if let appendLog {
@@ -158,13 +156,18 @@ enum Shell {
                 }
             }
         }
-        if logHandle == nil {
+
+        // 只在需要时建管道。父进程启动后必须关掉写端，否则读端永远等不到 EOF，管道会泄漏。
+        // 标准输入必须交给 Pipe 本身，不能只塞写端句柄，否则子进程读不到（FortiClient 密码会丢）。
+        let outPipe = logHandle == nil ? Pipe() : nil
+        let errPipe = logHandle == nil ? Pipe() : nil
+        if let outPipe, let errPipe {
             process.standardOutput = outPipe
             process.standardError = errPipe
         }
 
-        let inPipe = Pipe()
-        if stdin != nil {
+        let inPipe = stdin == nil ? nil : Pipe()
+        if let inPipe {
             process.standardInput = inPipe
         } else {
             process.standardInput = FileHandle.nullDevice
@@ -176,15 +179,19 @@ enum Shell {
         var stdout = ""
         var stderr = ""
         let readers = DispatchGroup()
-        if logHandle == nil {
+        if let outPipe, let errPipe {
+            let outRead = outPipe.fileHandleForReading
+            let errRead = errPipe.fileHandleForReading
             readers.enter()
             DispatchQueue.global(qos: .utility).async {
-                stdout = decode((try? outPipe.fileHandleForReading.readToEnd()) ?? Data())
+                stdout = decode((try? outRead.readToEnd()) ?? Data())
+                try? outRead.close()
                 readers.leave()
             }
             readers.enter()
             DispatchQueue.global(qos: .utility).async {
-                stderr = decode((try? errPipe.fileHandleForReading.readToEnd()) ?? Data())
+                stderr = decode((try? errRead.readToEnd()) ?? Data())
+                try? errRead.close()
                 readers.leave()
             }
         }
@@ -192,13 +199,20 @@ enum Shell {
         do {
             try process.run()
         } catch {
-            try? outPipe.fileHandleForWriting.close()
-            try? errPipe.fileHandleForWriting.close()
+            try? outPipe?.fileHandleForWriting.close()
+            try? errPipe?.fileHandleForWriting.close()
+            try? inPipe?.fileHandleForWriting.close()
+            try? logHandle?.close()
+            try? logHandleErr?.close()
             readers.wait()
             return CommandResult(code: 127, stdout: "", stderr: error.localizedDescription)
         }
 
-        if let stdin {
+        // 子进程已有写端副本；这里关掉父进程持有的写端，子进程退出后读端才能结束。
+        try? outPipe?.fileHandleForWriting.close()
+        try? errPipe?.fileHandleForWriting.close()
+
+        if let stdin, let inPipe {
             inPipe.fileHandleForWriting.write(stdin)
             try? inPipe.fileHandleForWriting.close()
         }
@@ -207,26 +221,35 @@ enum Shell {
         if let timeout {
             if finished.wait(timeout: .now() + timeout) == .timedOut {
                 timedOut = true
+                // scutil --nc stop 之类会卡死在内核里，SIGTERM 不够，必须 SIGKILL，
+                // 并关掉读端，否则 readers.wait 会跟着永远挂住。
                 process.terminate()
-                _ = finished.wait(timeout: .now() + 2)
+                _ = finished.wait(timeout: .now() + 0.4)
+                if process.isRunning {
+                    Darwin.kill(process.processIdentifier, SIGKILL)
+                    _ = finished.wait(timeout: .now() + 0.8)
+                }
+                try? outPipe?.fileHandleForReading.close()
+                try? errPipe?.fileHandleForReading.close()
             }
         } else {
             finished.wait()
         }
         // 子进程退出后，如果它留下的后台进程还抓着管道，不能无限等下去。
         if readers.wait(timeout: .now() + (timedOut ? 2 : 5)) == .timedOut {
-            try? outPipe.fileHandleForReading.close()
-            try? errPipe.fileHandleForReading.close()
+            try? outPipe?.fileHandleForReading.close()
+            try? errPipe?.fileHandleForReading.close()
             _ = readers.wait(timeout: .now() + 1)
         }
         try? logHandle?.close()
         try? logHandleErr?.close()
 
         let code: Int32 = timedOut ? 124 : process.terminationStatus
+        let limit = max(maxOutput, 0)
         return CommandResult(
             code: code,
-            stdout: String(stdout.prefix(maxOutput)),
-            stderr: String(stderr.prefix(maxOutput)),
+            stdout: limit == 0 ? stdout : String(stdout.prefix(limit)),
+            stderr: limit == 0 ? stderr : String(stderr.prefix(limit)),
             timedOut: timedOut
         )
     }

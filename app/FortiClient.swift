@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// FortiClient 的系统开关不会把账号交给它的隧道。真正的连接在菜单栏 FortiTray
@@ -31,6 +32,7 @@ enum FortiClient {
       return [];
     }
     (async () => {
+      try { await m.SetGuiHandle(process.pid); } catch (_) {}
       const listed = asList(await m.GetVPNConnectionList());
       const profile = listed.find((item) => item && item.type === "ssl") || listed[0];
       const name = (profile && profile.connection_name) || input.name || "";
@@ -57,7 +59,8 @@ enum FortiClient {
         save_password: "0",
         save_user_name: "0",
         always_up: "0",
-        auto_connect: "0"
+        auto_connect: "0",
+        certificate: ""
       }));
       process.stdout.write(String(result));
     })().catch(() => {
@@ -103,7 +106,18 @@ enum FortiClient {
         guard FileManager.default.fileExists(atPath: addonPath) else { return .noAddon }
         guard let binary = nodeBinary() else { return .noNode }
         if action == "connect", user.isEmpty || password.isEmpty { return .failed }
-        ensureTray()
+        // ConnectTunnel 必须在 FortiClient 主程序已注册时才回 ["1"]；只开 FortiTray 会得到 ["0"]。
+        ensureMessenger(forceRestart: false)
+        let first = invoke(binary: binary, action: action, user: user, password: password)
+        if first == .accepted { return .accepted }
+        if first == .rejected || first == .failed {
+            ensureMessenger(forceRestart: true)
+            return invoke(binary: binary, action: action, user: user, password: password)
+        }
+        return first
+    }
+
+    private static func invoke(binary: String, action: String, user: String, password: String) -> Result {
         let body: [String: String] = [
             "action": action,
             "username": user,
@@ -118,7 +132,7 @@ enum FortiClient {
             timeout: 20,
             environment: ["FCT_ADDON": addonPath]
         )
-        let text = result.stdout
+        let text = result.stdout + result.stderr
         if text.contains("[\"1\"]") { return .accepted }
         if text.contains("NEEDLOGIN") || text.contains("[\"0\"]") { return .rejected }
         return .failed
@@ -141,16 +155,73 @@ enum FortiClient {
         return false
     }
 
-    private static func ensureTray() {
+    private static func ensureMessenger(forceRestart: Bool = false) {
+        ensureTray(forceRestart: forceRestart)
+        ensureMainApp()
+    }
+
+    private static func ensureTray(forceRestart: Bool = false) {
         let socket = "/tmp/fctvpnctl.sock_\(getuid())"
-        if FileManager.default.fileExists(atPath: socket) { return }
+        if !forceRestart, socketAccepts(socket) { return }
+        for proc in Shell.processes() {
+            let cmd = proc.command
+            guard cmd.contains("/FortiTray.app/") || cmd.hasSuffix("/FortiTray") || cmd.contains("FortiTray.app/Contents/MacOS/FortiTray") else {
+                continue
+            }
+            _ = Darwin.kill(proc.pid, SIGTERM)
+        }
+        Thread.sleep(forTimeInterval: 0.4)
+        try? FileManager.default.removeItem(atPath: socket)
         guard FileManager.default.fileExists(atPath: trayApp) else { return }
         _ = Shell.run("/usr/bin/open", ["-g", trayApp], timeout: 8)
-        let deadline = Date().addingTimeInterval(8)
+        let deadline = Date().addingTimeInterval(10)
         while Date() < deadline {
-            if FileManager.default.fileExists(atPath: socket) { return }
+            if socketAccepts(socket) { return }
             Thread.sleep(forTimeInterval: 0.3)
         }
+    }
+
+    private static func ensureMainApp() {
+        let isGUI: (Proc) -> Bool = { proc in
+            proc.command.contains("/FortiClient.app/Contents/MacOS/FortiClient")
+                && !proc.command.contains("FortiClientAgent")
+                && !proc.command.contains("FortiTray")
+        }
+        if !Shell.processes().contains(where: isGUI) {
+            _ = Shell.run("/usr/bin/open", ["-g", "-a", "FortiClient"], timeout: 8)
+        }
+        // 主程序向 servctl 注册需要一点时间；注册前 ConnectTunnel 只会回 ["0"]。
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            if Shell.processes().contains(where: isGUI) {
+                Thread.sleep(forTimeInterval: 1.5)
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+    }
+
+    private static func socketAccepts(_ path: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: path) else { return false }
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path) - 1
+        path.withCString { src in
+            withUnsafeMutablePointer(to: &addr.sun_path) { dst in
+                dst.withMemoryRebound(to: CChar.self, capacity: maxLen + 1) { buf in
+                    strncpy(buf, src, maxLen)
+                }
+            }
+        }
+        let ok = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                Darwin.connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size)) == 0
+            }
+        }
+        return ok
     }
 
     private static func profileAccount() -> (name: String, user: String) {

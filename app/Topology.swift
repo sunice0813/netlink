@@ -630,8 +630,8 @@ struct TopologyCanvas: View {
 
     private func vpnOn(_ profile: VPNProfile) -> Bool {
         if profile.isSystemVPN { return model.vpn.systemUp.contains(profile.serviceName) }
-        let host = Credentials.load(file: profile.credentialFile)?.host ?? ""
-        let live = model.vpn.connectedHost
+        let host = Engine.vpnHostKey(Credentials.load(file: profile.credentialFile)?.host ?? "")
+        let live = Engine.vpnHostKey(model.vpn.connectedHost)
         if live.isEmpty {
             return model.config.vpns.filter { !$0.isSystemVPN }.count == 1 && model.vpn.phase == .up
         }

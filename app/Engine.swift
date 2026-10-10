@@ -68,6 +68,8 @@ struct TunnelSnapshot: Equatable {
 
 enum Engine {
     static let operationQueue = DispatchQueue(label: "netlink.operation")
+    /// Shadowrocket / FortiClient 单独排队，不被公司 VPN、隧道的操作锁拖住。
+    static let systemVPNQueue = DispatchQueue(label: "netlink.system-vpn")
 
     /// 只认终端里 `source ~/.zshrc; _vpn_watchdog` 这种进程。
     /// 别的命令行如果刚好带上这个字符串（比如搜索），不算守护进程。
@@ -218,49 +220,46 @@ enum Engine {
         return text.split(whereSeparator: \.isNewline).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
     }
 
+    /// 系统 VPN 不走公司 VPN/隧道那把操作锁，避免后台守护卡住时连断开都点不动。
     static func connectSystemVPN(_ name: String, label: String = "", kind: String = "") {
         let title = label.isEmpty ? name : label
-        FileLock.with {
-            if systemVPNStatus(name) == "Connected" {
-                emit("\(title) 已在运行")
-                return
-            }
-            if kind == "forticlient" {
-                connectFortiClient(service: name, title: title)
-                return
-            }
-            if kind == "shadowrocket" {
-                handOffShadowrocket(title, wantOn: true)
-                return
-            }
-            emit("正在连接 \(title)")
-            _ = Shell.run("/usr/sbin/scutil", ["--nc", "start", name], timeout: 8)
-            if waitSystemVPN(name, until: "Connected", seconds: 20) {
-                emit("\(title) 已连接")
-            } else {
-                emit("\(title) 还没连上")
-            }
+        if systemVPNStatus(name) == "Connected" {
+            emit("\(title) 已在运行")
+            return
+        }
+        if kind == "forticlient" {
+            connectFortiClient(service: name, title: title)
+            return
+        }
+        if kind == "shadowrocket" {
+            handOffShadowrocket(title, wantOn: true)
+            return
+        }
+        emit("正在连接 \(title)")
+        _ = Shell.run("/usr/sbin/scutil", ["--nc", "start", name], timeout: 8)
+        if waitSystemVPN(name, until: "Connected", seconds: 20) {
+            emit("\(title) 已连接")
+        } else {
+            emit("\(title) 还没连上")
         }
     }
 
     static func disconnectSystemVPN(_ name: String, label: String = "", kind: String = "") {
         let title = label.isEmpty ? name : label
-        FileLock.with {
-            if kind == "forticlient" {
-                disconnectFortiClient(service: name, title: title)
-                return
-            }
-            if kind == "shadowrocket" {
-                handOffShadowrocket(title, wantOn: false)
-                return
-            }
-            emit("正在断开 \(title)")
-            _ = Shell.run("/usr/sbin/scutil", ["--nc", "stop", name], timeout: 8)
-            if waitSystemVPN(name, until: "Disconnected", seconds: 8) {
-                emit("\(title) 已断开")
-            } else {
-                emit("\(title) 还在连接")
-            }
+        if kind == "forticlient" {
+            disconnectFortiClient(service: name, title: title)
+            return
+        }
+        if kind == "shadowrocket" {
+            handOffShadowrocket(title, wantOn: false)
+            return
+        }
+        emit("正在断开 \(title)")
+        _ = Shell.run("/usr/sbin/scutil", ["--nc", "stop", name], timeout: 8)
+        if waitSystemVPN(name, until: "Disconnected", seconds: 8) {
+            emit("\(title) 已断开")
+        } else {
+            emit("\(title) 还在连接")
         }
     }
 
@@ -318,43 +317,33 @@ enum Engine {
     }
 
     static func openSystemVPNApp(kind: String, label: String) {
-        FileLock.with {
-            guard let path = systemVPNAppPath(kind: kind) else {
-                emit("\(label) 不是可打开的系统 VPN")
-                return
-            }
-            guard FileManager.default.fileExists(atPath: path) else {
-                emit("找不到 \(label)")
-                return
-            }
-            emit("正在打开 \(label)")
-            let result = Shell.run("/usr/bin/open", [path], timeout: 8)
-            if result.ok {
-                emit("已打开 \(label)")
-            } else {
-                emit("\(label) 打开失败")
-            }
+        guard let path = systemVPNAppPath(kind: kind) else {
+            emit("\(label) 不是可打开的系统 VPN")
+            return
+        }
+        guard FileManager.default.fileExists(atPath: path) else {
+            emit("找不到 \(label)")
+            return
+        }
+        emit("正在打开 \(label)")
+        let result = Shell.run("/usr/bin/open", [path], timeout: 8)
+        if result.ok {
+            emit("已打开 \(label)")
+        } else {
+            emit("\(label) 打开失败")
         }
     }
 
     /// 先断开这个系统 VPN，再结束它的界面进程。系统目录里的守护进程保留。
     static func quitSystemVPNApp(service: String, kind: String, label: String) {
-        FileLock.with {
-            if systemVPNStatus(service) == "Connected", kind != "shadowrocket" {
-                if kind == "forticlient" {
-                    disconnectFortiClient(service: service, title: label)
-                } else {
-                    emit("正在断开 \(label)")
-                    _ = Shell.run("/usr/sbin/scutil", ["--nc", "stop", service], timeout: 8)
-                    if waitSystemVPN(service, until: "Disconnected", seconds: 8) {
-                        emit("\(label) 已断开")
-                    } else {
-                        emit("\(label) 还在连接")
-                    }
-                }
+        if systemVPNStatus(service) == "Connected", kind != "shadowrocket" {
+            if kind == "forticlient" {
+                disconnectFortiClient(service: service, title: label)
+            } else {
+                disconnectSystemVPN(service, label: label, kind: kind)
             }
-            endSystemVPNApp(kind: kind, label: label)
         }
+        endSystemVPNApp(kind: kind, label: label)
     }
 
     private static func endSystemVPNApp(kind: String, label: String) {
@@ -704,12 +693,12 @@ enum Engine {
         return true
     }
 
-    /// 调用方已经拿着 FileLock。失败时不会清掉守护标记。
+    /// 失败时不会清掉守护标记。锁只包住真正改进程的步骤，睡眠时放开。
     static func restartVPNPreservingFlag(config: AppConfig) {
         guard flag(config.vpnWatchdogFile) else { return }
         guard !shellWatchdogAlive("_vpn_watchdog") else { return }
         emitLog(config.vpnLogFile, "强制重启 VPN")
-        stopOpenConnect(config)
+        FileLock.with { stopOpenConnect(config) }
         sleep(3)
         guard flag(config.vpnWatchdogFile) else { return }
         // 重连最近一次连上的那个账号，而不是永远回到主 VPN。
@@ -724,15 +713,19 @@ enum Engine {
         let down = config.forwards.filter { $0.enabled && !forwardUp($0) }
         guard !down.isEmpty else { return }
         emitLog(config.tunnelLogFile, "隧道异常，重连 \(down.map(\.name).joined(separator: "、"))")
-        for forward in down {
-            stopForward(config, forward, restoreOthers: false)
+        FileLock.with {
+            for forward in down {
+                stopForward(config, forward, restoreOthers: false)
+            }
         }
         sleep(2)
         guard flag(config.tunnelWatchdogFile) else { return }
-        for forward in down {
-            _ = startAutossh(config, forwards: [forward])
+        FileLock.with {
+            for forward in down {
+                _ = startAutossh(config, forwards: [forward])
+            }
+            restoreEnabled(config, except: nil)
         }
-        restoreEnabled(config, except: nil)
     }
 
     static func flag(_ path: String) -> Bool {
@@ -955,6 +948,15 @@ enum Engine {
 
     static func isOpenConnect(_ command: String) -> Bool {
         executableName(command) == "openconnect" && command.contains("--protocol=anyconnect")
+    }
+
+    /// 凭据里可能是完整 URL，进程里只有主机名，比较时两边都收成 host。
+    static func vpnHostKey(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), let host = url.host, trimmed.contains("://") {
+            return host.lowercased()
+        }
+        return trimmed.lowercased()
     }
 
     private static func openConnectProcesses(in procs: [Proc]? = nil) -> [Proc] {

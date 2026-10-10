@@ -132,9 +132,7 @@ enum Service {
                     vpnFails += 1
                     Engine.emitLog(config.vpnLogFile, "VPN 健康检查失败（\(vpnFails)/\(config.vpnFailThreshold)）")
                     if Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: vpnFails, threshold: config.vpnFailThreshold) {
-                        FileLock.with {
-                            Engine.restartVPNPreservingFlag(config: config)
-                        }
+                        Engine.restartVPNPreservingFlag(config: config)
                         vpnFails = 0
                         Thread.sleep(forTimeInterval: 10)
                     }
@@ -150,9 +148,7 @@ enum Service {
                     tunnelFails += 1
                     Engine.emitLog(config.tunnelLogFile, "隧道健康检查失败（\(tunnelFails)/\(config.tunnelFailThreshold)）")
                     if Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: tunnelFails, threshold: config.tunnelFailThreshold) {
-                        FileLock.with {
-                            Engine.restartTunnelPreservingFlag(config: config)
-                        }
+                        Engine.restartTunnelPreservingFlag(config: config)
                         tunnelFails = 0
                         Thread.sleep(forTimeInterval: 8)
                     }

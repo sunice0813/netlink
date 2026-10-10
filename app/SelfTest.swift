@@ -219,6 +219,13 @@ enum SelfTest {
 
         FileLock.with {}
         check("file lock", true)
+        // 父进程关掉写端后，短命令的管道读端必须能结束，否则守护进程会把 FD 泄漏光。
+        let pipeProbe = Shell.run("/bin/echo", ["pipe-ok"], timeout: 5)
+        check("shell closes pipe ends", pipeProbe.ok && pipeProbe.stdout.contains("pipe-ok"))
+        let stdinProbe = Shell.run("/usr/bin/tr", ["a-z", "A-Z"], stdin: Data("forti-in".utf8), timeout: 5)
+        check("shell stdin reaches child", stdinProbe.ok && stdinProbe.stdout.contains("FORTI-IN"))
+        check("vpn host key strips url", Engine.vpnHostKey("https://vpn.techtanium.com") == "vpn.techtanium.com")
+        check("vpn host key keeps host", Engine.vpnHostKey("vpn.techtanium.com") == "vpn.techtanium.com")
         let fortiArgs = FortiClient.nodeArguments(binary: "/opt/homebrew/bin/node")
         let fortiSecret = "forti-secret-sample"
         let fortiPayload = (try? JSONSerialization.data(withJSONObject: [
@@ -227,7 +234,13 @@ enum SelfTest {
         let fortiPayloadText = String(data: fortiPayload, encoding: .utf8) ?? ""
         check("forticlient argv hides password", !fortiArgs.joined(separator: " ").contains(fortiSecret))
         check("forticlient payload stays on stdin", fortiPayloadText.contains(fortiSecret) && fortiPayloadText.contains("\"password\""))
-        check("forticlient script talks to messenger", FortiClient.script.contains("ConnectTunnel") && FortiClient.script.contains("DisconnectTunnel") && !FortiClient.script.contains("console.log"))
+        check(
+            "forticlient script talks to messenger",
+            FortiClient.script.contains("ConnectTunnel")
+                && FortiClient.script.contains("DisconnectTunnel")
+                && FortiClient.script.contains("SetGuiHandle")
+                && !FortiClient.script.contains("console.log")
+        )
         check("shadowrocket app path", Engine.systemVPNAppPath(kind: "shadowrocket") == "/Applications/Shadowrocket.app")
         check("forticlient app path", Engine.systemVPNAppPath(kind: "forticlient") == "/Applications/FortiClient.app")
         if FileManager.default.fileExists(atPath: "/Applications/FortiClient.app") {

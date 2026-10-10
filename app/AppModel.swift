@@ -12,6 +12,9 @@ final class AppModel {
     var busy = false
     var busyLabel: String?
     var job: Job?
+    /// Shadowrocket / FortiClient 的忙碌状态，不和公司 VPN、隧道互相卡住。
+    private var systemBusy = false
+    private var systemBusyLabel: String?
     var refreshingVisible = false
     var statusLine: String?
     var statusNonce = 0
@@ -176,7 +179,7 @@ final class AppModel {
                 askFortiAccount(thenConnect: true)
                 return
             }
-            run(.vpnConnect, "正在连接 \(name)") {
+            run(.vpnConnect, "正在连接 \(name)", systemVPN: true) {
                 Engine.connectSystemVPN(service, label: name, kind: kind)
             }
             return
@@ -197,7 +200,7 @@ final class AppModel {
     func disconnectVPNProfile(_ id: UUID) {
         if let profile = config.vpns.first(where: { $0.id == id }), profile.isSystemVPN {
             let service = profile.serviceName
-            run(.vpnDisconnect, "正在断开 \(profile.name)") {
+            run(.vpnDisconnect, "正在断开 \(profile.name)", systemVPN: true) {
                 Engine.disconnectSystemVPN(service, label: profile.name, kind: profile.kind)
             }
             return
@@ -220,14 +223,14 @@ final class AppModel {
 
     func openSystemVPNApp(_ id: UUID) {
         guard let profile = config.vpns.first(where: { $0.id == id }), profile.isSystemVPN else { return }
-        run(.vpnOpenApp, "正在打开 \(profile.name)") {
+        run(.vpnOpenApp, "正在打开 \(profile.name)", systemVPN: true) {
             Engine.openSystemVPNApp(kind: profile.kind, label: profile.name)
         }
     }
 
     func quitSystemVPNApp(_ id: UUID) {
         guard let profile = config.vpns.first(where: { $0.id == id }), profile.isSystemVPN else { return }
-        run(.vpnQuitApp, "正在退出 \(profile.name)") {
+        run(.vpnQuitApp, "正在退出 \(profile.name)", systemVPN: true) {
             Engine.quitSystemVPNApp(service: profile.serviceName, kind: profile.kind, label: profile.name)
         }
     }
@@ -242,7 +245,7 @@ final class AppModel {
                 askFortiAccount(thenConnect: true)
                 return
             }
-            run(.vpnRestart, "正在重启 \(name)") {
+            run(.vpnRestart, "正在重启 \(name)", systemVPN: true) {
                 Engine.restartSystemVPN(service, label: name, kind: kind)
             }
             return
@@ -534,26 +537,41 @@ final class AppModel {
         }
     }
 
-    private func run(_ job: Job, _ label: String, _ work: @escaping () -> Void) {
-        guard !busy else {
-            post(busyLabel.map { "\($0)，这一步还没结束" } ?? "上一步还没结束")
-            return
+    private func run(_ job: Job, _ label: String, systemVPN: Bool = false, _ work: @escaping () -> Void) {
+        if systemVPN {
+            guard !systemBusy else {
+                post(systemBusyLabel.map { "\($0)，这一步还没结束" } ?? "上一步还没结束")
+                return
+            }
+            systemBusy = true
+            systemBusyLabel = label
+        } else {
+            guard !busy else {
+                post(busyLabel.map { "\($0)，这一步还没结束" } ?? "上一步还没结束")
+                return
+            }
+            busy = true
+            busyLabel = label
         }
-        busy = true
         self.job = job
-        busyLabel = label
         post(label)
         JournalStore.shared.clear()
         journal = []
-        Engine.operationQueue.async {
+        let queue = systemVPN ? Engine.systemVPNQueue : Engine.operationQueue
+        queue.async {
             work()
             let lines = JournalStore.shared.snapshot()
             Task { @MainActor in
                 self.journal = lines
                 let result = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.post((result?.isEmpty == false ? result! : "完成"))
-                self.busy = false
-                self.busyLabel = nil
+                if systemVPN {
+                    self.systemBusy = false
+                    self.systemBusyLabel = nil
+                } else {
+                    self.busy = false
+                    self.busyLabel = nil
+                }
                 self.job = nil
                 Task { await self.refresh() }
             }
