@@ -220,6 +220,65 @@ enum SelfTest {
         let needsLogin = Data(#"{"jumps":[{"name":"x","host":"a@b","identityFile":"~/k"}],"forwards":[{"name":"w","localPort":80,"targetHost":"10.0.0.1","targetPort":80}],"vpns":[{"name":"远端 VPN","credentialFile":"~/netlink-does-not-exist.cred"}]}"#.utf8)
         check("import lists missing credentials", (try? ConfigTransfer.parse(needsLogin))?.missingCredentials == ["远端 VPN"])
 
+        // 带机密的导出：内容直接进文件，导入后落到应用自己的目录
+        do {
+            let scratch = NSTemporaryDirectory() + "netlink-transfer-\(getpid())"
+            try? FileManager.default.createDirectory(atPath: scratch, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(atPath: scratch) }
+            let credFile = scratch + "/vpn.cred"
+            let keyFile = scratch + "/id_test"
+            try Credentials.update(file: credFile, host: "vpn.example", user: "alice", newPassword: "s3cret pw")
+            let keyText = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n"
+            try keyText.write(toFile: keyFile, atomically: true, encoding: .utf8)
+
+            var source = config
+            source.vpns[0].credentialFile = credFile
+            source.jumps[0].identityFile = keyFile
+            source.normalize()
+            let full = try ConfigTransfer.export(source, includeSecrets: true)
+            let fullText = String(data: full, encoding: .utf8) ?? ""
+            check("export embeds the account", fullText.contains("s3cret pw") && fullText.contains("alice"))
+            check("export embeds the private key", fullText.contains("BEGIN OPENSSH PRIVATE KEY"))
+            check("export drops local file paths", !fullText.contains(credFile) && !fullText.contains(keyFile))
+
+            let plain = String(data: try ConfigTransfer.export(source, includeSecrets: false), encoding: .utf8) ?? ""
+            check("plain export has no secrets", !plain.contains("s3cret pw") && !plain.contains("PRIVATE KEY"))
+
+            let preview = try ConfigTransfer.parse(full)
+            check("import sees the secrets", preview.secrets.credentials.count == 1 && preview.secrets.keys.count == 1)
+            check("import with secrets has no issues", preview.issues.isEmpty && preview.missingCredentials.isEmpty)
+
+            let target = URL(fileURLWithPath: scratch + "/target")
+            let ready = try ConfigTransfer.materialize(preview, into: target)
+            let credPath = ready.vpns[0].credentialFile
+            let keyPath = ready.jumps[0].identityFile
+            check("materialized under app dir", credPath.hasPrefix(target.path) && keyPath.hasPrefix(target.path))
+            check("materialized account works", Credentials.load(file: credPath)?.password == "s3cret pw")
+            let keyMode = (try? FileManager.default.attributesOfItem(atPath: keyPath)[.posixPermissions] as? Int) ?? 0
+            check("materialized key is 0600", keyMode == 0o600)
+            check("materialized config passes checks", ConfigCheck.issues(ready).isEmpty)
+            check("primary mirrors follow", ready.credentialFile == credPath && ready.identityFile == keyPath)
+
+            // 文件里写的路径不会被当成写入目标
+            var tricky = try JSONSerialization.jsonObject(with: full) as! [String: Any]
+            var jumps = tricky["jumps"] as! [[String: Any]]
+            jumps[0]["identityFile"] = scratch + "/should-not-exist"
+            tricky["jumps"] = jumps
+            let trickyPreview = try ConfigTransfer.parse(JSONSerialization.data(withJSONObject: tricky))
+            _ = try ConfigTransfer.materialize(trickyPreview, into: target)
+            check("embedded path is not a write target", !FileManager.default.fileExists(atPath: scratch + "/should-not-exist"))
+
+            var notKey = try JSONSerialization.jsonObject(with: full) as! [String: Any]
+            var badJumps = notKey["jumps"] as! [[String: Any]]
+            badJumps[0]["identity"] = "echo pwned >> ~/.zshrc"
+            notKey["jumps"] = badJumps
+            check("non-key identity is rejected", try ConfigTransfer.parse(JSONSerialization.data(withJSONObject: notKey)).issues.isEmpty == false)
+        } catch {
+            check("secret transfer ran (\(error))", false)
+        }
+        check("portable path under home", ConfigTransfer.portable("/Users/x/keys/a", home: "/Users/x") == "~/keys/a")
+        check("portable path elsewhere is kept", ConfigTransfer.portable("/etc/a", home: "/Users/x") == "/etc/a")
+
         var broken = config
         broken.forwards.append(Forward(name: "重复", localPort: 80, targetHost: "10.0.0.1", targetPort: 80))
         check("duplicate port rejected", !ConfigCheck.issues(broken).isEmpty)

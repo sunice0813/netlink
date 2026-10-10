@@ -675,7 +675,7 @@ enum Credentials {
     }
 
     /// 先在同一目录里以 0600 建临时文件再改名，密码不会有哪怕一瞬间是别人可读的。
-    private static func writePrivate(_ data: Data, to path: String) throws {
+    static func writePrivate(_ data: Data, to path: String) throws {
         let temp = "\(path).tmp.\(getpid())"
         _ = unlink(temp)
         let fd = Darwin.open(temp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
@@ -849,14 +849,26 @@ enum ConfigStore {
 
 // MARK: - 配置导入导出
 
+/// 随配置一起带走的机密：VPN 账号（按 VPN 的 id）和 SSH 私钥内容（按跳板的 id）。
+struct ImportedSecrets {
+    var credentials: [UUID: VPNCredential] = [:]
+    var keys: [UUID: String] = [:]
+    var isEmpty: Bool { credentials.isEmpty && keys.isEmpty }
+}
+
 struct ImportPreview {
     var config: AppConfig
     var issues: [String]
-    /// 配置里指向的凭据文件在这台机器上还不存在，导入后要重新填账号。
+    var secrets: ImportedSecrets
+    /// 配置里指向的凭据文件在这台机器上不存在，而文件里也没带账号：导入后要重新填。
     var missingCredentials: [String]
 
     var summary: String {
-        "\(config.vpns.count) 个 VPN · \(config.jumps.count) 台跳板 · \(config.forwards.count) 条转发"
+        var text = "\(config.vpns.count) 个 VPN · \(config.jumps.count) 台跳板 · \(config.forwards.count) 条转发"
+        if !secrets.isEmpty {
+            text += " · 含 \(secrets.credentials.count) 个账号、\(secrets.keys.count) 把私钥"
+        }
+        return text
     }
 }
 
@@ -872,43 +884,191 @@ enum ConfigTransferError: LocalizedError {
     }
 }
 
-/// 配置的导出和导入。配置里没有密码：账号密码在各自的凭据文件里，不随配置走。
+/// 配置的导出和导入。
+///
+/// 导出时可以把 VPN 账号的内容和 SSH 私钥的内容直接写进文件，换一台机器导入就能用，
+/// 不用再去拷凭据文件和密钥。这样的文件里是明文密码和私钥，要当密码一样保管。
+///
+/// 导入时机密不会写回文件里写的路径（那是任意路径，等于让别人的文件往你的家目录里写东西），
+/// 而是存进应用自己的数据目录，再把配置里的路径指过去。
 enum ConfigTransfer {
     private static let knownKeys: Set<String> = ["forwards", "jumps", "vpns", "jumpHost", "credentialFile", "routeMarker", "pingHost"]
+    private static let maxKeyBytes = 64 * 1024
 
-    static func export(_ config: AppConfig) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(config)
+    /// 家目录下的路径写成 `~/...`，换一台机器、换一个用户名也指得对。
+    static func portable(_ path: String, home: String = FileManager.default.homeDirectoryForCurrentUser.path) -> String {
+        let expanded = PathExpander.expand(path)
+        if expanded == home { return "~" }
+        if expanded.hasPrefix(home + "/") { return "~" + expanded.dropFirst(home.count) }
+        return path
     }
 
-    static func write(_ config: AppConfig, to url: URL) throws {
-        try export(config).write(to: url, options: .atomic)
-        // 里面有主机名和路径，不该让别的用户读到。
+    static func export(_ config: AppConfig, includeSecrets: Bool = false) throws -> Data {
+        let encoder = JSONEncoder()
+        let encoded = try encoder.encode(config)
+        guard var root = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+            throw ConfigTransferError.notNetLinkConfig
+        }
+
+        var vpns = (root["vpns"] as? [[String: Any]]) ?? []
+        for index in vpns.indices {
+            guard let path = vpns[index]["credentialFile"] as? String else { continue }
+            if includeSecrets, !path.isEmpty,
+               let credential = Credentials.load(file: path) {
+                vpns[index]["credential"] = [
+                    "host": credential.host,
+                    "user": credential.user,
+                    "password": credential.password,
+                ]
+                vpns[index].removeValue(forKey: "credentialFile")
+            } else {
+                vpns[index]["credentialFile"] = portable(path)
+            }
+        }
+        root["vpns"] = vpns
+
+        var jumps = (root["jumps"] as? [[String: Any]]) ?? []
+        for index in jumps.indices {
+            guard let path = jumps[index]["identityFile"] as? String else { continue }
+            if includeSecrets, !path.isEmpty,
+               let key = try? String(contentsOfFile: PathExpander.expand(path), encoding: .utf8),
+               key.utf8.count <= maxKeyBytes, key.contains("PRIVATE KEY") {
+                jumps[index]["identity"] = key
+                jumps[index].removeValue(forKey: "identityFile")
+            } else {
+                jumps[index]["identityFile"] = portable(path)
+            }
+        }
+        root["jumps"] = jumps
+
+        // 顶层这两项只是主 VPN / 主跳板的镜像，导入时会从它们那里重新算出来。
+        if includeSecrets {
+            root.removeValue(forKey: "credentialFile")
+            root.removeValue(forKey: "identityFile")
+        } else {
+            for key in ["credentialFile", "identityFile"] {
+                if let value = root[key] as? String { root[key] = portable(value) }
+            }
+        }
+        return try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    static func write(_ config: AppConfig, to url: URL, includeSecrets: Bool = false) throws {
+        try export(config, includeSecrets: includeSecrets).write(to: url, options: .atomic)
+        // 里面有主机名和路径，带机密的更不能让别的用户读到。
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     /// 配置的解码对缺字段很宽容（`{}` 也能解出一份默认值），所以先确认它确实像 NetLink 的配置，
     /// 免得随便一个 JSON 文件就把当前配置换成默认值。
     static func parse(_ data: Data) throws -> ImportPreview {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              !knownKeys.isDisjoint(with: object.keys) else {
+        guard var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              !knownKeys.isDisjoint(with: root.keys) else {
             throw ConfigTransferError.notNetLinkConfig
         }
+
+        var secrets = ImportedSecrets()
+        var problems: [String] = []
+        var vpns = (root["vpns"] as? [[String: Any]]) ?? []
+        for index in vpns.indices {
+            guard let embedded = vpns[index]["credential"] as? [String: Any] else { continue }
+            vpns[index].removeValue(forKey: "credential")
+            let name = vpns[index]["name"] as? String ?? "VPN"
+            guard let idText = vpns[index]["id"] as? String, let id = UUID(uuidString: idText) else {
+                problems.append("\(name) 的账号没有有效的 id")
+                continue
+            }
+            let host = (embedded["host"] as? String) ?? ""
+            let user = (embedded["user"] as? String) ?? ""
+            let password = (embedded["password"] as? String) ?? ""
+            if host.isEmpty || user.isEmpty || password.isEmpty {
+                problems.append("\(name) 的账号不完整")
+            } else if [host, user, password].contains(where: { $0.contains(where: \.isNewline) }) {
+                problems.append("\(name) 的账号里有换行")
+            } else {
+                secrets.credentials[id] = VPNCredential(host: host, user: user, password: password)
+            }
+        }
+        root["vpns"] = vpns
+
+        var jumps = (root["jumps"] as? [[String: Any]]) ?? []
+        for index in jumps.indices {
+            guard let key = jumps[index]["identity"] as? String else { continue }
+            jumps[index].removeValue(forKey: "identity")
+            let name = jumps[index]["name"] as? String ?? "跳板"
+            guard let idText = jumps[index]["id"] as? String, let id = UUID(uuidString: idText) else {
+                problems.append("\(name) 的私钥没有有效的 id")
+                continue
+            }
+            if !key.contains("PRIVATE KEY") || key.utf8.count > maxKeyBytes {
+                problems.append("\(name) 的私钥格式不对")
+            } else {
+                secrets.keys[id] = key
+            }
+        }
+        root["jumps"] = jumps
+
+        let stripped = (try? JSONSerialization.data(withJSONObject: root)) ?? data
         let decoded: AppConfig
         do {
-            decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+            decoded = try JSONDecoder().decode(AppConfig.self, from: stripped)
         } catch {
             throw ConfigTransferError.unreadable(error.localizedDescription)
         }
         var config = decoded
         config.normalize()
+
         let missing = config.vpns.compactMap { vpn -> String? in
-            guard !vpn.isSystemVPN, !vpn.credentialFile.isEmpty else { return nil }
+            guard !vpn.isSystemVPN, secrets.credentials[vpn.id] == nil else { return nil }
+            guard !vpn.credentialFile.isEmpty else { return vpn.name }
             let path = PathExpander.expand(vpn.credentialFile)
             return FileManager.default.fileExists(atPath: path) ? nil : vpn.name
         }
-        return ImportPreview(config: config, issues: ConfigCheck.issues(config), missingCredentials: missing)
+
+        // 带了机密的条目，路径会在导入时指到应用的数据目录，这里只校验其他部分。
+        var checked = config
+        for index in checked.vpns.indices where secrets.credentials[checked.vpns[index].id] != nil {
+            checked.vpns[index].credentialFile = "~/.netlink-imported"
+        }
+        for index in checked.jumps.indices where secrets.keys[checked.jumps[index].id] != nil {
+            checked.jumps[index].identityFile = "~/.netlink-imported"
+        }
+        checked.normalize()
+        return ImportPreview(
+            config: config,
+            issues: problems + ConfigCheck.issues(checked),
+            secrets: secrets,
+            missingCredentials: missing
+        )
+    }
+
+    /// 把带来的机密落到 `directory/imported/` 下，并把配置里的路径指过去。返回可以保存的配置。
+    static func materialize(_ preview: ImportPreview, into directory: URL = ConfigStore.directory) throws -> AppConfig {
+        var config = preview.config
+        let credentials = directory.appendingPathComponent("imported/credentials", isDirectory: true)
+        let keys = directory.appendingPathComponent("imported/keys", isDirectory: true)
+        let private700: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+        if !preview.secrets.credentials.isEmpty {
+            try FileManager.default.createDirectory(at: credentials, withIntermediateDirectories: true, attributes: private700)
+        }
+        if !preview.secrets.keys.isEmpty {
+            try FileManager.default.createDirectory(at: keys, withIntermediateDirectories: true, attributes: private700)
+        }
+        for index in config.vpns.indices {
+            guard let credential = preview.secrets.credentials[config.vpns[index].id] else { continue }
+            let path = credentials.appendingPathComponent(config.vpns[index].id.uuidString).path
+            try Credentials.update(file: path, host: credential.host, user: credential.user, newPassword: credential.password)
+            config.vpns[index].credentialFile = path
+        }
+        for index in config.jumps.indices {
+            guard let key = preview.secrets.keys[config.jumps[index].id] else { continue }
+            let path = keys.appendingPathComponent(config.jumps[index].id.uuidString).path
+            let text = key.hasSuffix("\n") ? key : key + "\n"
+            try Credentials.writePrivate(Data(text.utf8), to: path)
+            config.jumps[index].identityFile = path
+        }
+        config.normalize()
+        return config
     }
 
     /// 导入前把当前配置留一份。

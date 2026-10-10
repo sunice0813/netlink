@@ -788,6 +788,7 @@ struct ConfigTransferView: View {
     @State private var previewName = ""
     @State private var message = ""
     @State private var failed = false
+    @State private var includeSecrets = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -807,16 +808,26 @@ struct ConfigTransferView: View {
             VStack(alignment: .leading, spacing: 18) {
                 section(
                     title: "导出",
-                    detail: "把当前的 VPN、跳板、转发和图上的位置存成一个 JSON 文件。账号密码不在里面，各自留在本机的凭据文件中。"
+                    detail: "把当前的 VPN、跳板、转发和图上的位置存成一个 JSON 文件。勾选下面的选项后，VPN 账号和 SSH 私钥的内容也一起带上，换一台机器导入就能直接用。"
                 ) {
-                    ActionButton(title: "导出到文件…", symbol: "square.and.arrow.up", kind: .secondary) {
-                        exportConfig()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("包含 VPN 密码和 SSH 私钥", isOn: $includeSecrets)
+                            .toggleStyle(.checkbox)
+                        if includeSecrets {
+                            Text("导出的文件里是明文密码和私钥，请当成密码一样保管，只交给自己信任的人。")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.warn)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        ActionButton(title: "导出到文件…", symbol: "square.and.arrow.up", kind: .secondary) {
+                            exportConfig()
+                        }
                     }
                 }
                 Rectangle().fill(theme.line).frame(height: 1)
                 section(
                     title: "导入",
-                    detail: "选择之前导出的文件，确认内容后替换当前配置。替换前会把现在的配置备份为 config.json.bak。"
+                    detail: "选择之前导出的文件，确认内容后替换当前配置。替换前会把现在的配置备份为 config.json.bak。文件里带的账号和私钥会存进应用自己的数据目录。"
                 ) {
                     ActionButton(title: "选择文件…", symbol: "square.and.arrow.down", kind: .secondary) {
                         chooseFile()
@@ -838,7 +849,7 @@ struct ConfigTransferView: View {
         }
         .background(theme.bg)
         .foregroundStyle(theme.text)
-        .frame(width: 520, height: 440)
+        .frame(width: 540, height: 520)
     }
 
     private func section<Content: View>(title: String, detail: String, @ViewBuilder content: () -> Content) -> some View {
@@ -861,7 +872,7 @@ struct ConfigTransferView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(theme.muted)
             if !preview.missingCredentials.isEmpty {
-                Text("这台机器上还没有 \(preview.missingCredentials.joined(separator: "、")) 的账号文件，导入后要在对应节点里重新填账号。")
+                Text("\(preview.missingCredentials.joined(separator: "、")) 的账号文件在这台机器上不存在，文件里也没带账号，导入后要在对应节点里重新填。")
                     .font(.system(size: 12))
                     .foregroundStyle(theme.warn)
                     .fixedSize(horizontal: false, vertical: true)
@@ -900,8 +911,13 @@ struct ConfigTransferView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let current = ConfigStore.loadIfValid() ?? model.config
-            try ConfigTransfer.write(current, to: url)
-            show("已导出到 \(url.path)", failed: false)
+            try ConfigTransfer.write(current, to: url, includeSecrets: includeSecrets)
+            show(
+                includeSecrets
+                    ? "已导出到 \(url.path)（含密码和私钥，请妥善保管）"
+                    : "已导出到 \(url.path)",
+                failed: false
+            )
         } catch {
             show("导出失败：\(error.localizedDescription)", failed: true)
         }
@@ -928,7 +944,8 @@ struct ConfigTransferView: View {
     private func apply(_ preview: ImportPreview) {
         ConfigTransfer.backupCurrent()
         do {
-            try model.save(config: preview.config)
+            let ready = try ConfigTransfer.materialize(preview)
+            try model.save(config: ready)
             self.preview = nil
             show("已导入。原配置备份为 config.json.bak，转发和 VPN 的改动重新连接后生效。", failed: false)
             Task { await model.refresh() }
