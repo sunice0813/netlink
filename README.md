@@ -31,3 +31,4 @@ NetLink.app/Contents/MacOS/NetLink --status
 关掉窗口不会退出。菜单栏里的「退出并断开」会先停掉 VPN、隧道和本应用的后台守护，再退出。
 
 配置在 `~/Library/Application Support/NetLink/config.json`。转发规则改完要重启隧道才生效。
+
