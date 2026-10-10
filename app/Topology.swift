@@ -100,53 +100,59 @@ struct TopologyCanvas: View {
     private func buildEdges(_ placed: [String: CGPoint]) -> [TopologyEdge] {
         var edges: [TopologyEdge] = []
         let machine = placed[TopologyKey.machine] ?? TopologyMetrics.origin
-        let vpns = model.config.vpns
-        let vpnBiases = sideBiases(for: vpns.map { placed[TopologyKey.vpn($0.id)] ?? .zero }, parent: machine)
-        for (vpnIndex, vpn) in vpns.enumerated() {
-            guard let origin = placed[TopologyKey.vpn(vpn.id)] else { continue }
-            let link = TopologyMetrics.link(from: machine, to: origin, fromBias: vpnBiases[vpnIndex], toBias: 0)
-            edges.append(TopologyEdge(
-                id: "m-\(vpn.id.uuidString)",
-                from: link.from,
-                to: link.to,
-                fromSide: link.fromSide,
-                toSide: link.toSide,
-                on: vpnOn(vpn)
-            ))
+        let all = model.config.vpns
+        let ids = Set(all.map(\.id))
+        let roots = all.filter { vpn in
+            guard let via = vpn.viaID else { return true }
+            return !ids.contains(via)
+        }
+        var visited = Set<UUID>()
+
+        func add(_ id: String, _ link: (from: CGPoint, to: CGPoint, fromSide: TopologySide, toSide: TopologySide), on: Bool) {
+            edges.append(TopologyEdge(id: id, from: link.from, to: link.to, fromSide: link.fromSide, toSide: link.toSide, on: on))
+        }
+
+        func emit(_ vpn: VPNProfile) {
+            guard !visited.contains(vpn.id) else { return }
+            visited.insert(vpn.id)
+            guard let origin = placed[TopologyKey.vpn(vpn.id)] else { return }
+
+            let children = model.config.vpns(via: vpn.id).filter { !visited.contains($0.id) }
+            let childBiases = sideBiases(for: children.map { placed[TopologyKey.vpn($0.id)] ?? .zero }, parent: origin)
+            for (index, child) in children.enumerated() {
+                guard let childOrigin = placed[TopologyKey.vpn(child.id)] else { continue }
+                let link = TopologyMetrics.link(from: origin, to: childOrigin, fromBias: childBiases[index], toBias: 0)
+                add("w-\(vpn.id.uuidString)-\(child.id.uuidString)", link, on: vpnOn(vpn) && vpnOn(child))
+                emit(child)
+            }
+
             let jumps = model.config.jumps(on: vpn.id)
             let jumpBiases = sideBiases(for: jumps.map { placed[TopologyKey.jump($0.id)] ?? .zero }, parent: origin)
             for (jumpIndex, jump) in jumps.enumerated() {
                 guard let jumpOrigin = placed[TopologyKey.jump(jump.id)] else { continue }
                 let jumpLink = TopologyMetrics.link(from: origin, to: jumpOrigin, fromBias: jumpBiases[jumpIndex], toBias: 0)
-                edges.append(TopologyEdge(
-                    id: "v-\(vpn.id.uuidString)-\(jump.id.uuidString)",
-                    from: jumpLink.from,
-                    to: jumpLink.to,
-                    fromSide: jumpLink.fromSide,
-                    toSide: jumpLink.toSide,
-                    on: jumpOn(jump)
-                ))
+                add("v-\(vpn.id.uuidString)-\(jump.id.uuidString)", jumpLink, on: jumpOn(jump))
                 let forwards = model.config.forwards(on: jump.id)
                 let tunnelBiases = sideBiases(for: forwards.map { placed[TopologyKey.forward($0.id)] ?? .zero }, parent: jumpOrigin)
                 for (forwardIndex, forward) in forwards.enumerated() {
                     guard let tunnelOrigin = placed[TopologyKey.forward(forward.id)] else { continue }
-                    let port = portStatus(forward)
                     let tunnelLink = TopologyMetrics.link(
                         from: jumpOrigin,
                         to: tunnelOrigin,
                         fromBias: tunnelBiases[forwardIndex],
                         toBias: 0
                     )
-                    edges.append(TopologyEdge(
-                        id: "j-\(jump.id.uuidString)-\(forward.id.uuidString)",
-                        from: tunnelLink.from,
-                        to: tunnelLink.to,
-                        fromSide: tunnelLink.fromSide,
-                        toSide: tunnelLink.toSide,
-                        on: port.httpOK
-                    ))
+                    add("j-\(jump.id.uuidString)-\(forward.id.uuidString)", tunnelLink, on: portStatus(forward).httpOK)
                 }
             }
+        }
+
+        let rootBiases = sideBiases(for: roots.map { placed[TopologyKey.vpn($0.id)] ?? .zero }, parent: machine)
+        for (index, vpn) in roots.enumerated() {
+            guard let origin = placed[TopologyKey.vpn(vpn.id)] else { continue }
+            let link = TopologyMetrics.link(from: machine, to: origin, fromBias: rootBiases[index], toBias: 0)
+            add("m-\(vpn.id.uuidString)", link, on: vpnOn(vpn))
+            emit(vpn)
         }
         return edges
     }
@@ -411,6 +417,7 @@ struct TopologyCanvas: View {
                 dismiss()
                 pathEdit.wrappedValue = .addJump(profile.id)
             }
+            viaRows(profile, dismiss: dismiss)
             if model.config.vpns.count > 1, profile.id != VPNProfile.primary, !profile.isSystemVPN {
                 TunnelActionRow(title: "删除", symbol: "trash", tint: theme.bad, spinning: false) {
                     dismiss()
@@ -429,6 +436,9 @@ struct TopologyCanvas: View {
         return VStack(alignment: .leading, spacing: 2) {
             menuNote(on ? "已连接" : "未连接")
             menuNote(whereFrom)
+            if profile.isShadowrocket {
+                menuNote("开关要在应用里点，这里只显示状态")
+            }
             if profile.isForticlient, !FortiClient.hasLogin() {
                 menuNote("还没有密码")
             }
@@ -464,6 +474,7 @@ struct TopologyCanvas: View {
                 dismiss()
                 pathEdit.wrappedValue = .renameVPN(profile.id)
             }
+            viaRows(profile, dismiss: dismiss)
         }
         .padding(6)
         .frame(width: 228)
@@ -522,6 +533,39 @@ struct TopologyCanvas: View {
         .padding(6)
         .frame(width: 228)
         .background(theme.bg)
+    }
+
+    /// 选这个 VPN 的流量先经过谁。只影响图和状态显示。
+    @ViewBuilder
+    private func viaRows(_ profile: VPNProfile, dismiss: @escaping () -> Void) -> some View {
+        let blocked = model.config.vpns.filter { other in
+            other.id == profile.id || model.config.upstreamIDs(of: other.id).contains(profile.id)
+        }.map(\.id)
+        let options = model.config.vpns.filter { !blocked.contains($0.id) }
+        if !options.isEmpty {
+            menuRule()
+            menuNote("流量经过")
+            TunnelActionRow(
+                title: "本机直接出去",
+                symbol: profile.viaID == nil ? "checkmark" : "arrow.right",
+                tint: theme.text,
+                spinning: false
+            ) {
+                dismiss()
+                model.setVPNVia(profile.id, via: nil)
+            }
+            ForEach(options) { option in
+                TunnelActionRow(
+                    title: "经 \(option.name)",
+                    symbol: profile.viaID == option.id ? "checkmark" : "arrow.turn.down.right",
+                    tint: theme.text,
+                    spinning: false
+                ) {
+                    dismiss()
+                    model.setVPNVia(profile.id, via: option.id)
+                }
+            }
+        }
     }
 
     private func menuNote(_ text: String) -> some View {

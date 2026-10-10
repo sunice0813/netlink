@@ -139,21 +139,24 @@ struct VPNProfile: Codable, Equatable, Identifiable {
     var kind: String
     /// 系统 VPN 在 scutil 里的服务名。
     var serviceName: String
+    /// 流量先经过的另一个 VPN（例如 Shadowrocket）。空则直接从本机出去。只用来画图和显示状态，不影响连接。
+    var viaID: UUID?
 
     var isShadowrocket: Bool { kind == "shadowrocket" }
     var isForticlient: Bool { kind == "forticlient" }
     var isSystemVPN: Bool { isShadowrocket || isForticlient }
 
-    init(id: UUID = UUID(), name: String, credentialFile: String, kind: String = "openconnect", serviceName: String = "") {
+    init(id: UUID = UUID(), name: String, credentialFile: String, kind: String = "openconnect", serviceName: String = "", viaID: UUID? = nil) {
         self.id = id
         self.name = name
         self.credentialFile = credentialFile
         self.kind = kind
         self.serviceName = serviceName
+        self.viaID = viaID
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, credentialFile, kind, serviceName
+        case id, name, credentialFile, kind, serviceName, viaID
     }
 
     init(from decoder: Decoder) throws {
@@ -163,6 +166,7 @@ struct VPNProfile: Codable, Equatable, Identifiable {
         credentialFile = try container.decodeIfPresent(String.self, forKey: .credentialFile) ?? ""
         kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? "openconnect"
         serviceName = try container.decodeIfPresent(String.self, forKey: .serviceName) ?? ""
+        viaID = try container.decodeIfPresent(UUID.self, forKey: .viaID)
     }
 }
 
@@ -404,6 +408,39 @@ extension AppConfig {
         if let primary = vpns.first(where: { $0.id == VPNProfile.primary }) ?? vpns.first {
             credentialFile = primary.credentialFile
         }
+        let ids = Set(vpns.map(\.id))
+        for index in vpns.indices {
+            if let via = vpns[index].viaID, via == vpns[index].id || !ids.contains(via) {
+                vpns[index].viaID = nil
+            }
+        }
+        for index in vpns.indices {
+            var seen: Set<UUID> = [vpns[index].id]
+            var cursor = vpns[index].viaID
+            while let id = cursor {
+                if seen.contains(id) {
+                    vpns[index].viaID = nil
+                    break
+                }
+                seen.insert(id)
+                cursor = vpns.first { $0.id == id }?.viaID
+            }
+        }
+    }
+
+    /// 从这个 VPN 往上走，经过的所有上游 VPN。
+    func upstreamIDs(of id: UUID) -> Set<UUID> {
+        var found: Set<UUID> = []
+        var cursor = vpns.first { $0.id == id }?.viaID
+        while let next = cursor, !found.contains(next), next != id {
+            found.insert(next)
+            cursor = vpns.first { $0.id == next }?.viaID
+        }
+        return found
+    }
+
+    func vpns(via id: UUID) -> [VPNProfile] {
+        vpns.filter { $0.viaID == id }
     }
 
     func jump(for forward: Forward) -> Jump {
@@ -432,16 +469,14 @@ extension AppConfig {
         layout[key] = LayoutPoint(point)
     }
 
-    /// 从左到右：本机、VPN、跳板、隧道。有隧道的 VPN 放在中间，父节点相对子节点垂直居中。
+    /// 从左到右：本机、（上游 VPN）、VPN、跳板、隧道。有隧道的 VPN 放在中间，父节点相对子节点垂直居中。
+    /// 每多一层上游，后面的列整体右移一列。
     func defaultLayout() -> [String: CGPoint] {
         let metrics = TopologyMetrics.self
-        let nodeW = metrics.nodeSize.width
         let nodeH = metrics.nodeSize.height
         let rowGap = metrics.rowGap
-        let col0 = metrics.origin.x
-        let col1 = col0 + nodeW + metrics.columnGap
-        let col2 = col1 + nodeW + metrics.columnGap
-        let col3 = col2 + nodeW + metrics.columnGap
+        let step = metrics.nodeSize.width + metrics.columnGap
+        func column(_ index: Int) -> CGFloat { metrics.origin.x + CGFloat(index) * step }
         var placed: [String: CGPoint] = [:]
 
         func stackHeight(_ count: Int) -> CGFloat {
@@ -457,26 +492,67 @@ extension AppConfig {
         struct VPNBlock {
             var id: UUID
             var height: CGFloat
+            var span: CGFloat
+            var hasJumps: Bool
+            var children: [VPNBlock]
             var jumps: [JumpBlock]
         }
 
-        let linked = vpns.filter { !jumps(on: $0.id).isEmpty }
-        let alone = vpns.filter { jumps(on: $0.id).isEmpty }
-        let head = alone.count / 2
-        let ordered = Array(alone.prefix(head)) + linked + Array(alone.dropFirst(head))
-
-        var blocks: [VPNBlock] = []
-        for vpn in ordered {
+        var seen = Set<UUID>()
+        func build(_ vpn: VPNProfile) -> VPNBlock {
+            seen.insert(vpn.id)
+            var children: [VPNBlock] = []
+            for child in vpns where child.viaID == vpn.id && !seen.contains(child.id) {
+                children.append(build(child))
+            }
             var jumpBlocks: [JumpBlock] = []
             for jump in jumps(on: vpn.id) {
-                let children = forwards(on: jump.id)
-                let height = children.isEmpty ? nodeH : max(nodeH, stackHeight(children.count))
-                jumpBlocks.append(JumpBlock(id: jump.id, height: height, forwards: children.map(\.id)))
+                let list = forwards(on: jump.id)
+                let height = list.isEmpty ? nodeH : max(nodeH, stackHeight(list.count))
+                jumpBlocks.append(JumpBlock(id: jump.id, height: height, forwards: list.map(\.id)))
             }
-            let span = jumpBlocks.isEmpty
-                ? nodeH
-                : jumpBlocks.map(\.height).reduce(0, +) + CGFloat(max(jumpBlocks.count - 1, 0)) * rowGap
-            blocks.append(VPNBlock(id: vpn.id, height: max(nodeH, span), jumps: jumpBlocks))
+            let heights = children.map(\.height) + jumpBlocks.map(\.height)
+            let span = heights.isEmpty ? 0 : heights.reduce(0, +) + CGFloat(heights.count - 1) * rowGap
+            return VPNBlock(
+                id: vpn.id,
+                height: max(nodeH, span),
+                span: span,
+                hasJumps: !jumpBlocks.isEmpty || children.contains { $0.hasJumps },
+                children: children,
+                jumps: jumpBlocks
+            )
+        }
+
+        let ids = Set(vpns.map(\.id))
+        let roots = vpns.filter { vpn in
+            guard let via = vpn.viaID else { return true }
+            return !ids.contains(via)
+        }
+        var built = roots.map(build)
+        for vpn in vpns where !seen.contains(vpn.id) {
+            built.append(build(vpn))
+        }
+        let linked = built.filter(\.hasJumps)
+        let alone = built.filter { !$0.hasJumps }
+        let head = alone.count / 2
+        let blocks = Array(alone.prefix(head)) + linked + Array(alone.dropFirst(head))
+
+        func place(_ block: VPNBlock, depth: Int, top: CGFloat) {
+            placed[TopologyKey.vpn(block.id)] = CGPoint(x: column(depth + 1), y: top + (block.height - nodeH) / 2)
+            var cursor = top + (block.height - block.span) / 2
+            for child in block.children {
+                place(child, depth: depth + 1, top: cursor)
+                cursor += child.height + rowGap
+            }
+            for jump in block.jumps {
+                placed[TopologyKey.jump(jump.id)] = CGPoint(x: column(depth + 2), y: cursor + (jump.height - nodeH) / 2)
+                var forwardCursor = cursor + (jump.height - stackHeight(jump.forwards.count)) / 2
+                for id in jump.forwards {
+                    placed[TopologyKey.forward(id)] = CGPoint(x: column(depth + 3), y: forwardCursor)
+                    forwardCursor += nodeH + rowGap
+                }
+                cursor += jump.height + rowGap
+            }
         }
 
         let total = blocks.isEmpty
@@ -484,33 +560,19 @@ extension AppConfig {
             : blocks.map(\.height).reduce(0, +) + CGFloat(max(blocks.count - 1, 0)) * rowGap
         var cursor = metrics.origin.y
         for block in blocks {
-            let jumpSpan = block.jumps.isEmpty
-                ? CGFloat(0)
-                : block.jumps.map(\.height).reduce(0, +) + CGFloat(max(block.jumps.count - 1, 0)) * rowGap
-            placed[TopologyKey.vpn(block.id)] = CGPoint(x: col1, y: cursor + (block.height - nodeH) / 2)
-            var jumpCursor = cursor + (block.height - jumpSpan) / 2
-            for jump in block.jumps {
-                placed[TopologyKey.jump(jump.id)] = CGPoint(x: col2, y: jumpCursor + (jump.height - nodeH) / 2)
-                let forwardSpan = stackHeight(jump.forwards.count)
-                var forwardCursor = jumpCursor + (jump.height - forwardSpan) / 2
-                for id in jump.forwards {
-                    placed[TopologyKey.forward(id)] = CGPoint(x: col3, y: forwardCursor)
-                    forwardCursor += nodeH + rowGap
-                }
-                jumpCursor += jump.height + rowGap
-            }
+            place(block, depth: 0, top: cursor)
             cursor += block.height + rowGap
         }
 
-        placed[TopologyKey.machine] = CGPoint(x: col0, y: metrics.origin.y + max(0, (total - nodeH) / 2))
+        placed[TopologyKey.machine] = CGPoint(x: column(0), y: metrics.origin.y + max(0, (total - nodeH) / 2))
 
         var spill = cursor
         for jump in jumps where placed[TopologyKey.jump(jump.id)] == nil {
-            placed[TopologyKey.jump(jump.id)] = CGPoint(x: col2, y: spill)
+            placed[TopologyKey.jump(jump.id)] = CGPoint(x: column(2), y: spill)
             spill += nodeH + rowGap
         }
         for forward in forwards where placed[TopologyKey.forward(forward.id)] == nil {
-            placed[TopologyKey.forward(forward.id)] = CGPoint(x: col3, y: spill)
+            placed[TopologyKey.forward(forward.id)] = CGPoint(x: column(3), y: spill)
             spill += nodeH + rowGap
         }
         return placed

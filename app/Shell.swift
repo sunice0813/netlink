@@ -87,7 +87,9 @@ enum Shell {
     }
 
     static func processes() -> [Proc] {
-        let result = run("/bin/ps", ["-ax", "-o", "pid=,command="])
+        // 进程多、命令行长的时候 ps 输出会超过默认上限，后面（pid 大的）会被截掉，
+        // 新起的进程就看不见了，所以这里放宽。
+        let result = run("/bin/ps", ["-ax", "-o", "pid=,command="], maxOutput: 8_000_000)
         return parsePS(result.stdout)
     }
 
@@ -98,7 +100,8 @@ enum Shell {
         sudo: Bool = false,
         timeout: TimeInterval? = nil,
         appendLog: String? = nil,
-        environment: [String: String]? = nil
+        environment: [String: String]? = nil,
+        maxOutput: Int = 200_000
     ) -> CommandResult {
         let binary = sudo ? "/usr/bin/sudo" : launchPath
         let argv = sudo ? ["-n", launchPath] + arguments : arguments
@@ -205,8 +208,8 @@ enum Shell {
         let code: Int32 = timedOut ? 124 : process.terminationStatus
         return CommandResult(
             code: code,
-            stdout: String(stdout.prefix(200_000)),
-            stderr: String(stderr.prefix(200_000)),
+            stdout: String(stdout.prefix(maxOutput)),
+            stderr: String(stderr.prefix(maxOutput)),
             timedOut: timedOut
         )
     }

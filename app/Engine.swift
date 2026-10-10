@@ -174,7 +174,28 @@ enum Engine {
         }
     }
 
+    /// Shadowrocket 是 iOS 应用在 Mac 上跑的，`scutil --nc` 里看不到它。
+    /// 装没装看应用目录，开没开看它的 PacketTunnel 扩展进程。
+    static let shadowrocketApp = "/Applications/Shadowrocket.app"
+
+    static func shadowrocketInstalled() -> Bool {
+        FileManager.default.fileExists(atPath: shadowrocketApp)
+    }
+
+    static func shadowrocketRunning(in procs: [Proc]? = nil) -> Bool {
+        (procs ?? Shell.processes()).contains {
+            $0.command.contains("/Shadowrocket.app/PlugIns/PacketTunnel.appex/")
+        }
+    }
+
+    /// Shadowrocket 没有可调用的开关，只能打开应用让人点。状态会在下一次检查里自己更新。
+    private static func handOffShadowrocket(_ title: String, wantOn: Bool) {
+        emit("\(title) 没有命令行开关，已打开应用，请在里面\(wantOn ? "打开" : "关闭")开关")
+        _ = Shell.run("/usr/bin/open", [shadowrocketApp], timeout: 8)
+    }
+
     static func systemVPNInstalled(_ name: String, bundleHint: String = "") -> Bool {
+        if name == "Shadowrocket" { return shadowrocketInstalled() }
         let listed = Shell.run("/usr/sbin/scutil", ["--nc", "list"], timeout: 5).stdout
         return listed.split(whereSeparator: \.isNewline).contains { line in
             line.contains("\"\(name)\"") && (bundleHint.isEmpty || line.contains(bundleHint))
@@ -182,6 +203,7 @@ enum Engine {
     }
 
     static func systemVPNStatus(_ name: String) -> String {
+        if name == "Shadowrocket" { return shadowrocketRunning() ? "Connected" : "Disconnected" }
         let text = Shell.run("/usr/sbin/scutil", ["--nc", "status", name], timeout: 5).stdout
         return text.split(whereSeparator: \.isNewline).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
     }
@@ -195,6 +217,10 @@ enum Engine {
             }
             if kind == "forticlient" {
                 connectFortiClient(service: name, title: title)
+                return
+            }
+            if kind == "shadowrocket" {
+                handOffShadowrocket(title, wantOn: true)
                 return
             }
             emit("正在连接 \(title)")
@@ -212,6 +238,10 @@ enum Engine {
         FileLock.with {
             if kind == "forticlient" {
                 disconnectFortiClient(service: name, title: title)
+                return
+            }
+            if kind == "shadowrocket" {
+                handOffShadowrocket(title, wantOn: false)
                 return
             }
             emit("正在断开 \(title)")
@@ -300,7 +330,7 @@ enum Engine {
     /// 先断开这个系统 VPN，再结束它的界面进程。系统目录里的守护进程保留。
     static func quitSystemVPNApp(service: String, kind: String, label: String) {
         FileLock.with {
-            if systemVPNStatus(service) == "Connected" {
+            if systemVPNStatus(service) == "Connected", kind != "shadowrocket" {
                 if kind == "forticlient" {
                     disconnectFortiClient(service: service, title: label)
                 } else {
@@ -1094,7 +1124,19 @@ enum Engine {
         return result.stdout.contains(marker)
     }
 
+    /// 写成 `主机:端口` 就测 TCP 连得上，否则 ping。公司网关常常不回 ICMP，
+    /// 测跳板机的 22 端口（和原来的脚本一致）更可靠。
+    static func tcpTarget(_ raw: String) -> (host: String, port: Int)? {
+        guard let colon = raw.lastIndex(of: ":"), !raw.contains("]") else { return nil }
+        let host = String(raw[..<colon])
+        guard !host.isEmpty, let port = Int(raw[raw.index(after: colon)...]), (1...65535).contains(port) else { return nil }
+        return (host, port)
+    }
+
     private static func ping(_ host: String) -> Bool {
+        if let target = tcpTarget(host) {
+            return Shell.run("/usr/bin/nc", ["-z", "-w", "3", target.host, String(target.port)], timeout: 6).ok
+        }
         let result = Shell.run("/sbin/ping", ["-c", "1", "-W", "3000", "-t", "4", host], timeout: 6)
         return result.ok
     }

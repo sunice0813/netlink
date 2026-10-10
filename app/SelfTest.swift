@@ -77,6 +77,32 @@ enum SelfTest {
         let shadowY = arranged[TopologyKey.vpn(VPNProfile.shadowrocket)]!.y
         let fortiY = arranged[TopologyKey.vpn(VPNProfile.forticlient)]!.y
         check("default puts the tunnel vpn in the middle", shadowY < companyY && companyY < fortiY)
+        let bulky = (0..<400).map { "\($0 + 1) /usr/bin/x " + String(repeating: "a", count: 1000) }.joined(separator: "\n") + "\n99999 /app/NetLink --service\n"
+        check("late pids survive parsing", Shell.parsePS(bulky).last?.pid == 99999)
+        let bigRun = Shell.run("/bin/sh", ["-c", "head -c 300000 /dev/zero | tr '\\0' a"], maxOutput: 400_000)
+        check("run honours output cap", bigRun.stdout.count == 300_000)
+        check("tcp health target", Engine.tcpTarget("10.62.11.31:22")?.port == 22 && Engine.tcpTarget("172.16.88.238") == nil && Engine.tcpTarget("host:99999") == nil)
+        var chained = AppConfig()
+        chained.vpns.append(VPNProfile(id: VPNProfile.shadowrocket, name: "Shadowrocket", credentialFile: "", kind: "shadowrocket", serviceName: "Shadowrocket"))
+        chained.vpns[0].viaID = VPNProfile.shadowrocket
+        let hop = chained.defaultLayout()
+        let hopMachine = hop[TopologyKey.machine]!
+        let hopProxy = hop[TopologyKey.vpn(VPNProfile.shadowrocket)]!
+        let hopVPN = hop[TopologyKey.vpn(VPNProfile.primary)]!
+        let hopJump = hop[TopologyKey.jump(Jump.primary)]!
+        let hopForward = hop[TopologyKey.forward(Forward.bundled[0].id)]!
+        check("via puts the upstream between machine and vpn", hopMachine.x < hopProxy.x && hopProxy.x < hopVPN.x && hopVPN.x < hopJump.x && hopJump.x < hopForward.x)
+        check("via chain stays on one row", abs(hopProxy.y - hopVPN.y) < 0.5 && abs(hopMachine.y - hopProxy.y) < 0.5)
+        var looped = chained
+        looped.vpns[1].viaID = VPNProfile.primary
+        looped.normalize()
+        check("via loop is broken", looped.vpns.contains { $0.viaID == nil })
+        var dangling = AppConfig()
+        dangling.vpns[0].viaID = UUID()
+        dangling.normalize()
+        check("dangling via is cleared", dangling.vpns[0].viaID == nil)
+        check("via upstream lookup", chained.upstreamIDs(of: VPNProfile.primary) == [VPNProfile.shadowrocket] && chained.upstreamIDs(of: VPNProfile.shadowrocket).isEmpty)
+        check("via encodes and decodes", (try? JSONDecoder().decode(AppConfig.self, from: JSONEncoder().encode(chained)))?.vpns.first?.viaID == VPNProfile.shadowrocket)
         let oldVPN = try? JSONDecoder().decode(VPNProfile.self, from: Data(#"{"id":"B1000000-0000-4000-8000-000000000001","name":"VPN","credentialFile":"~/.internalvpn"}"#.utf8))
         check("old vpn profile stays openconnect", oldVPN?.kind == "openconnect" && oldVPN?.isShadowrocket == false)
 

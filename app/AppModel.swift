@@ -403,6 +403,32 @@ final class AppModel {
         }
     }
 
+    /// 设置流量先经过哪个 VPN。只改图和状态显示，不动任何连接。
+    func setVPNVia(_ id: UUID, via: UUID?) {
+        guard let index = config.vpns.firstIndex(where: { $0.id == id }) else { return }
+        if let via {
+            guard via != id, config.vpns.contains(where: { $0.id == via }) else { return }
+            guard !config.upstreamIDs(of: via).contains(id) else {
+                post("不能绕成一圈")
+                return
+            }
+        }
+        guard config.vpns[index].viaID != via else { return }
+        var next = config
+        next.vpns[index].viaID = via
+        next.layout = next.defaultLayout().mapValues(LayoutPoint.init)
+        do {
+            try save(config: next)
+            if let via, let name = next.vpns.first(where: { $0.id == via })?.name {
+                post("\(next.vpns[index].name) 的流量经过 \(name)")
+            } else {
+                post("\(next.vpns[index].name) 直接从本机出去")
+            }
+        } catch {
+            post(error.localizedDescription)
+        }
+    }
+
     func reparentJump(_ id: UUID, to vpnID: UUID) {
         var next = config
         guard let index = next.jumps.firstIndex(where: { $0.id == id }) else { return }
@@ -420,7 +446,11 @@ final class AppModel {
     private func placeNew(_ key: String, near parent: String, in config: inout AppConfig, column: Int) {
         let placed = config.resolvedLayout()
         let parentOrigin = placed[parent] ?? TopologyMetrics.origin
-        let x = TopologyMetrics.origin.x + CGFloat(column) * (TopologyMetrics.nodeSize.width + TopologyMetrics.columnGap)
+        let step = TopologyMetrics.nodeSize.width + TopologyMetrics.columnGap
+        // 上游 VPN 会让后面的列右移，新节点跟着父节点走，不按固定列号。
+        let x = placed[parent] != nil
+            ? parentOrigin.x + step
+            : TopologyMetrics.origin.x + CGFloat(column) * step
         var y = parentOrigin.y
         let occupied = placed.values.filter { abs($0.x - x) < 40 }.map(\.y)
         while occupied.contains(where: { abs($0 - y) < TopologyMetrics.nodeSize.height }) {
