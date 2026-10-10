@@ -1,0 +1,51 @@
+name: Release
+
+# 推送 v* 形式的 Tag（例如 v0.2.0）时，编译 arm64 的 NetLink.app 并发布到 Releases。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 编译并自检
+        env:
+          TAG: ${{ github.ref_name }}
+        run: NETLINK_VERSION="${TAG#v}" ./scripts/build.sh
+
+      - name: 确认是 arm64
+        run: |
+          archs="$(lipo -archs NetLink.app/Contents/MacOS/NetLink)"
+          echo "架构：$archs"
+          test "$archs" = "arm64"
+
+      - name: 打包
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          zip="NetLink-${TAG}-arm64.zip"
+          # ditto 会保留应用包里的元数据和签名，普通 zip 不行
+          ditto -c -k --keepParent NetLink.app "$zip"
+          shasum -a 256 "$zip" > "$zip.sha256"
+          cat "$zip.sha256"
+
+      - name: 发布
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip="NetLink-${TAG}-arm64.zip"
+          notes="未签名、未公证的 arm64 版本。首次打开请右键选择「打开」，或执行：
+          \`xattr -dr com.apple.quarantine NetLink.app\`"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$zip" "$zip.sha256" --clobber
+          else
+            gh release create "$TAG" "$zip" "$zip.sha256" \
+              --title "$TAG" --generate-notes --notes "$notes" --verify-tag
+          fi

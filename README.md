@@ -55,3 +55,22 @@ Shadowrocket 在 Mac 上是 iOS 应用，没有命令行开关。图上能显示
 ## 免密 sudo
 
 连接和断开用 `sudo -n` 调用 `openconnect`、`autossh`、`kill`、`lsof`，需要在 sudoers 里放行。应用只结束带自己 `-E <隧道日志>` 标记的 autossh/ssh 进程，不会动占着同一端口的其他程序。
+
+## 发布
+
+推送 `v*` 形式的 Tag，GitHub Actions 会编译 arm64 版本并发布到 Releases：
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+产物是 `NetLink-v0.2.0-arm64.zip` 和对应的 `.sha256`，应用内版本号取自 Tag。
+
+发布的版本没有开发者签名和公证。下载后首次打开，请右键选择「打开」，或者先执行：
+
+```bash
+xattr -dr com.apple.quarantine NetLink.app
+```
+
+每次推送到 `main` 和每个 PR 也会跑一遍编译和自检（`.github/workflows/ci.yml`）。本地构建可以用 `NETLINK_OUT` 指定输出目录、`NETLINK_VERSION` 指定版本号。

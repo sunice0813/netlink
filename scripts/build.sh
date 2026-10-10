@@ -5,7 +5,9 @@ set -euo pipefail
 APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$APP_ROOT/app"
 BUILD_DIR="$APP_DIR/build"
-APP_BUNDLE="$APP_ROOT/NetLink.app"
+# NETLINK_OUT 指定产物目录（默认仓库根目录）；NETLINK_VERSION 写进 Info.plist（发布时由 CI 传入 Tag）。
+OUT_DIR="${NETLINK_OUT:-$APP_ROOT}"
+APP_BUNDLE="$OUT_DIR/NetLink.app"
 EXEC_NAME="NetLink"
 
 echo "▸ 编译"
@@ -28,6 +30,16 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$BUILD_DIR/$EXEC_NAME" "$APP_BUNDLE/Contents/MacOS/$EXEC_NAME"
 cp "$APP_DIR/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+
+if [ -n "${NETLINK_VERSION:-}" ]; then
+  if ! [[ "$NETLINK_VERSION" =~ ^[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.-]+)?$ ]]; then
+    echo "版本号格式不对：$NETLINK_VERSION（应为 1.2.3 这样）" >&2
+    exit 1
+  fi
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $NETLINK_VERSION" "$APP_BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER:-$NETLINK_VERSION}" "$APP_BUNDLE/Contents/Info.plist"
+  echo "▸ 版本 $NETLINK_VERSION"
+fi
 
 ICON_PNG="$BUILD_DIR/icon.png"
 ICONSET="$BUILD_DIR/icon.iconset"
