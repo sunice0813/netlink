@@ -195,7 +195,7 @@ struct TopologyCanvas: View {
                 PathNode(
                     symbol: "macbook",
                     title: model.config.machineName,
-                    detail: "这台 Mac",
+                    detail: tr("这台 Mac", "This Mac"),
                     tint: theme.accent,
                     on: true,
                     externalHover: menuKey == item.key
@@ -226,7 +226,7 @@ struct TopologyCanvas: View {
                     symbol: serviceSymbol(port.name),
                     pageURL: port.browseURL,
                     title: port.name,
-                    detail: port.httpOK ? "已连接" : (port.listening ? "无响应" : "未连接"),
+                    detail: port.httpOK ? tr("已连接", "Connected") : (port.listening ? tr("无响应", "No response") : tr("未连接", "Disconnected")),
                     tint: port.httpOK ? theme.ok : (port.listening ? theme.warn : theme.bad),
                     on: port.httpOK,
                     externalHover: menuKey == item.key
@@ -351,17 +351,17 @@ struct TopologyCanvas: View {
         case .machine: return model.config.machineName
         case .vpn(let profile): return profile.name
         case .jump(let jump): return jump.name
-        case .forward(let forward): return "\(forward.name) 的操作"
+        case .forward(let forward): return tr("\(forward.name) 的操作", "\(forward.name) actions")
         }
     }
 
     private func machineMenu(dismiss: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            TunnelActionRow(title: "改名", symbol: "pencil", tint: theme.text, spinning: false) {
+            TunnelActionRow(title: tr("改名", "Rename"), symbol: "pencil", tint: theme.text, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .renameMachine
             }
-            TunnelActionRow(title: "添加 VPN", symbol: "plus", tint: theme.accent, spinning: false) {
+            TunnelActionRow(title: tr("添加 VPN", "Add VPN"), symbol: "plus", tint: theme.accent, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .addVPN
             }
@@ -375,23 +375,23 @@ struct TopologyCanvas: View {
         if profile.isSystemVPN {
             return AnyView(systemVPNMenu(profile, dismiss: dismiss))
         }
-        let alive = vpnOn(profile) && model.vpn.processAlive ? "在跑" : "没在跑"
-        let route = model.vpn.routePresent ? "已有" : "没有"
-        let gateway = model.vpn.gatewayReachable ? "通" : "不通"
+        let alive = vpnOn(profile) && model.vpn.processAlive ? tr("在跑", "running") : tr("没在跑", "not running")
+        let route = model.vpn.routePresent ? tr("已有", "present") : tr("没有", "missing")
+        let gateway = model.vpn.gatewayReachable ? tr("通", "reachable") : tr("不通", "unreachable")
         let host = Credentials.load(file: profile.credentialFile)?.host ?? ""
         return AnyView(VStack(alignment: .leading, spacing: 2) {
-            menuNote(host.isEmpty ? "还没有主机" : host)
-            menuNote("进程 \(alive) · 路由 \(route) · 网关 \(gateway)")
+            menuNote(host.isEmpty ? tr("还没有主机", "No host yet") : host)
+            menuNote(tr("进程 \(alive) · 路由 \(route) · 网关 \(gateway)", "Process \(alive) · Route \(route) · Gateway \(gateway)"))
             menuRule()
-            TunnelActionRow(title: "连接", symbol: "link", tint: theme.accent, spinning: model.job == .vpnConnect) {
+            TunnelActionRow(title: tr("连接", "Connect"), symbol: "link", tint: theme.accent, spinning: model.job == .vpnConnect) {
                 dismiss()
                 model.connectVPNProfile(profile.id)
             }
-            TunnelActionRow(title: "断开", symbol: "minus.circle", tint: theme.bad, spinning: model.job == .vpnDisconnect) {
+            TunnelActionRow(title: tr("断开", "Disconnect"), symbol: "minus.circle", tint: theme.bad, spinning: model.job == .vpnDisconnect) {
                 dismiss()
                 model.disconnectVPNProfile(profile.id)
             }
-            TunnelActionRow(title: "重启", symbol: "arrow.clockwise", tint: theme.text, spinning: model.job == .vpnRestart) {
+            TunnelActionRow(title: tr("重启", "Restart"), symbol: "arrow.clockwise", tint: theme.text, spinning: model.job == .vpnRestart) {
                 dismiss()
                 model.restartVPNProfile(profile.id)
             }
@@ -406,21 +406,21 @@ struct TopologyCanvas: View {
                 disable: { model.setVPNWatch(false) }
             )
             menuRule()
-            TunnelActionRow(title: "改名", symbol: "pencil", tint: theme.text, spinning: false) {
+            TunnelActionRow(title: tr("改名", "Rename"), symbol: "pencil", tint: theme.text, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .renameVPN(profile.id)
             }
-            TunnelActionRow(title: "修改账号", symbol: "person", tint: theme.accent, spinning: false) {
+            TunnelActionRow(title: tr("修改账号", "Edit account"), symbol: "person", tint: theme.accent, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .vpn(profile.id)
             }
-            TunnelActionRow(title: "添加跳板", symbol: "plus", tint: theme.accent, spinning: false) {
+            TunnelActionRow(title: tr("添加跳板", "Add jump host"), symbol: "plus", tint: theme.accent, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .addJump(profile.id)
             }
             viaRows(profile, dismiss: dismiss)
             if model.config.vpns.count > 1, profile.id != VPNProfile.primary, !profile.isSystemVPN {
-                TunnelActionRow(title: "删除", symbol: "trash", tint: theme.bad, spinning: false) {
+                TunnelActionRow(title: tr("删除", "Delete"), symbol: "trash", tint: theme.bad, spinning: false) {
                     dismiss()
                     model.removeVPN(profile.id)
                 }
@@ -433,45 +433,45 @@ struct TopologyCanvas: View {
 
     private func systemVPNMenu(_ profile: VPNProfile, dismiss: @escaping () -> Void) -> some View {
         let on = vpnOn(profile)
-        let whereFrom = profile.isForticlient ? "系统里的 FortiClient" : "系统里的 Shadowrocket"
+        let whereFrom = profile.isForticlient ? tr("系统里的 FortiClient", "FortiClient on this Mac") : tr("系统里的 Shadowrocket", "Shadowrocket on this Mac")
         return VStack(alignment: .leading, spacing: 2) {
-            menuNote(on ? "已连接" : "未连接")
+            menuNote(on ? tr("已连接", "Connected") : tr("未连接", "Disconnected"))
             menuNote(whereFrom)
             if profile.isShadowrocket {
-                menuNote("开关要在应用里点，这里只显示状态")
+                menuNote(tr("开关要在应用里点，这里只显示状态", "Toggle it inside the app; this only shows the status"))
             }
             if profile.isForticlient, !FortiClient.hasLogin() {
-                menuNote("还没有密码")
+                menuNote(tr("还没有密码", "No password yet"))
             }
             menuRule()
-            TunnelActionRow(title: "连接", symbol: "link", tint: theme.accent, spinning: model.job == .vpnConnect) {
+            TunnelActionRow(title: tr("连接", "Connect"), symbol: "link", tint: theme.accent, spinning: model.job == .vpnConnect) {
                 dismiss()
                 model.connectVPNProfile(profile.id)
             }
-            TunnelActionRow(title: "断开", symbol: "minus.circle", tint: theme.bad, spinning: model.job == .vpnDisconnect) {
+            TunnelActionRow(title: tr("断开", "Disconnect"), symbol: "minus.circle", tint: theme.bad, spinning: model.job == .vpnDisconnect) {
                 dismiss()
                 model.disconnectVPNProfile(profile.id)
             }
-            TunnelActionRow(title: "重启", symbol: "arrow.clockwise", tint: theme.text, spinning: model.job == .vpnRestart) {
+            TunnelActionRow(title: tr("重启", "Restart"), symbol: "arrow.clockwise", tint: theme.text, spinning: model.job == .vpnRestart) {
                 dismiss()
                 model.restartVPNProfile(profile.id)
             }
-            TunnelActionRow(title: "打开应用", symbol: "arrow.up.forward.app", tint: theme.accent, spinning: model.job == .vpnOpenApp) {
+            TunnelActionRow(title: tr("打开应用", "Open app"), symbol: "arrow.up.forward.app", tint: theme.accent, spinning: model.job == .vpnOpenApp) {
                 dismiss()
                 model.openSystemVPNApp(profile.id)
             }
-            TunnelActionRow(title: "退出", symbol: "power", tint: theme.bad, spinning: model.job == .vpnQuitApp) {
+            TunnelActionRow(title: tr("退出", "Quit"), symbol: "power", tint: theme.bad, spinning: model.job == .vpnQuitApp) {
                 dismiss()
                 model.quitSystemVPNApp(profile.id)
             }
             menuRule()
             if profile.isForticlient {
-                TunnelActionRow(title: "修改账号", symbol: "person", tint: theme.accent, spinning: false) {
+                TunnelActionRow(title: tr("修改账号", "Edit account"), symbol: "person", tint: theme.accent, spinning: false) {
                     dismiss()
                     model.askFortiAccount(thenConnect: false)
                 }
             }
-            TunnelActionRow(title: "改名", symbol: "pencil", tint: theme.text, spinning: false) {
+            TunnelActionRow(title: tr("改名", "Rename"), symbol: "pencil", tint: theme.text, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .renameVPN(profile.id)
             }
@@ -486,18 +486,18 @@ struct TopologyCanvas: View {
         let keyOK = FileManager.default.isReadableFile(atPath: PathExpander.expand(jump.identityFile))
         let running = jumpOn(jump)
         return VStack(alignment: .leading, spacing: 2) {
-            menuNote(jump.host.isEmpty ? "还没有跳板" : jump.host)
-            menuNote("密钥 \(keyOK ? "可读" : "没有") · autossh \(running ? "在跑" : "没在跑")")
+            menuNote(jump.host.isEmpty ? tr("还没有跳板", "No jump host yet") : jump.host)
+            menuNote(tr("密钥 \(keyOK ? "可读" : "没有") · autossh \(running ? "在跑" : "没在跑")", "Key \(keyOK ? "readable" : "missing") · autossh \(running ? "running" : "not running")"))
             menuRule()
-            TunnelActionRow(title: "连接", symbol: "link", tint: theme.accent, spinning: model.job == .tunnelConnect) {
+            TunnelActionRow(title: tr("连接", "Connect"), symbol: "link", tint: theme.accent, spinning: model.job == .tunnelConnect) {
                 dismiss()
                 model.connectJump(jump.id)
             }
-            TunnelActionRow(title: "断开", symbol: "minus.circle", tint: theme.bad, spinning: model.job == .tunnelDisconnect) {
+            TunnelActionRow(title: tr("断开", "Disconnect"), symbol: "minus.circle", tint: theme.bad, spinning: model.job == .tunnelDisconnect) {
                 dismiss()
                 model.disconnectJump(jump.id)
             }
-            TunnelActionRow(title: "重启", symbol: "arrow.clockwise", tint: theme.text, spinning: model.job == .tunnelRestart) {
+            TunnelActionRow(title: tr("重启", "Restart"), symbol: "arrow.clockwise", tint: theme.text, spinning: model.job == .tunnelRestart) {
                 dismiss()
                 model.restartJump(jump.id)
             }
@@ -512,20 +512,20 @@ struct TopologyCanvas: View {
                 disable: { model.setTunnelWatch(false) }
             )
             menuRule()
-            TunnelActionRow(title: "改名", symbol: "pencil", tint: theme.text, spinning: false) {
+            TunnelActionRow(title: tr("改名", "Rename"), symbol: "pencil", tint: theme.text, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .renameJump(jump.id)
             }
-            TunnelActionRow(title: "修改跳板", symbol: "server.rack", tint: theme.accent, spinning: false) {
+            TunnelActionRow(title: tr("修改跳板", "Edit jump host"), symbol: "server.rack", tint: theme.accent, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .jump(jump.id)
             }
-            TunnelActionRow(title: "添加隧道", symbol: "plus", tint: theme.accent, spinning: false) {
+            TunnelActionRow(title: tr("添加隧道", "Add tunnel"), symbol: "plus", tint: theme.accent, spinning: false) {
                 dismiss()
                 pathEdit.wrappedValue = .addTunnel(jump.id)
             }
             if model.config.jumps.count > 1, model.config.forwards(on: jump.id).isEmpty {
-                TunnelActionRow(title: "删除", symbol: "trash", tint: theme.bad, spinning: false) {
+                TunnelActionRow(title: tr("删除", "Delete"), symbol: "trash", tint: theme.bad, spinning: false) {
                     dismiss()
                     model.removeJump(jump.id)
                 }
@@ -545,9 +545,9 @@ struct TopologyCanvas: View {
         let options = model.config.vpns.filter { !blocked.contains($0.id) }
         if !options.isEmpty {
             menuRule()
-            menuNote("流量经过")
+            menuNote(tr("流量经过", "Traffic goes through"))
             TunnelActionRow(
-                title: "本机直接出去",
+                title: tr("本机直接出去", "Directly from this Mac"),
                 symbol: profile.viaID == nil ? "checkmark" : "arrow.right",
                 tint: theme.text,
                 spinning: false
@@ -557,7 +557,7 @@ struct TopologyCanvas: View {
             }
             ForEach(options) { option in
                 TunnelActionRow(
-                    title: "经 \(option.name)",
+                    title: tr("经 \(option.name)", "Via \(option.name)"),
                     symbol: profile.viaID == option.id ? "checkmark" : "arrow.turn.down.right",
                     tint: theme.text,
                     spinning: false
@@ -573,7 +573,8 @@ struct TopologyCanvas: View {
         Text(text)
             .font(.system(size: 11))
             .foregroundStyle(theme.muted)
-            .lineLimit(1)
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
     }
@@ -595,27 +596,27 @@ struct TopologyCanvas: View {
     ) -> some View {
         switch owner {
         case .shell, .both:
-            TunnelActionRow(title: "改由本应用守护", symbol: "arrow.triangle.2.circlepath", tint: theme.accent, spinning: takeoverSpinning) {
+            TunnelActionRow(title: tr("改由本应用守护", "Let this app watch it"), symbol: "arrow.triangle.2.circlepath", tint: theme.accent, spinning: takeoverSpinning) {
                 dismiss()
                 takeover()
             }
-            TunnelActionRow(title: "停止自动重连", symbol: "pause.circle", tint: theme.bad, spinning: disableSpinning) {
+            TunnelActionRow(title: tr("停止自动重连", "Stop auto-reconnect"), symbol: "pause.circle", tint: theme.bad, spinning: disableSpinning) {
                 dismiss()
                 disable()
             }
         case .app, .stale:
-            TunnelActionRow(title: "停止自动重连", symbol: "pause.circle", tint: theme.bad, spinning: disableSpinning) {
+            TunnelActionRow(title: tr("停止自动重连", "Stop auto-reconnect"), symbol: "pause.circle", tint: theme.bad, spinning: disableSpinning) {
                 dismiss()
                 disable()
             }
             if owner == .stale {
-                TunnelActionRow(title: "重新拉起守护", symbol: "arrow.clockwise", tint: theme.accent, spinning: enableSpinning) {
+                TunnelActionRow(title: tr("重新拉起守护", "Restart the watchdog"), symbol: "arrow.clockwise", tint: theme.accent, spinning: enableSpinning) {
                     dismiss()
                     enable()
                 }
             }
         case .off:
-            TunnelActionRow(title: "开启自动重连", symbol: "arrow.triangle.2.circlepath", tint: theme.accent, spinning: enableSpinning) {
+            TunnelActionRow(title: tr("开启自动重连", "Turn on auto-reconnect"), symbol: "arrow.triangle.2.circlepath", tint: theme.accent, spinning: enableSpinning) {
                 dismiss()
                 enable()
             }
@@ -639,10 +640,10 @@ struct TopologyCanvas: View {
     }
 
     private func vpnDetail(_ profile: VPNProfile, on: Bool) -> String {
-        if profile.isSystemVPN { return on ? "已连接" : "未连接" }
+        if profile.isSystemVPN { return on ? tr("已连接", "Connected") : tr("未连接", "Disconnected") }
         if on { return model.vpn.phase.title }
         let host = Credentials.load(file: profile.credentialFile)?.host ?? ""
-        return host.isEmpty ? "未设置" : host
+        return host.isEmpty ? tr("未设置", "Not set") : host
     }
 
     private func jumpOn(_ jump: Jump) -> Bool {
@@ -654,7 +655,7 @@ struct TopologyCanvas: View {
         if let host = raw.split(separator: "@").last, !host.isEmpty {
             return String(host)
         }
-        return raw.isEmpty ? "未设置" : raw
+        return raw.isEmpty ? tr("未设置", "Not set") : raw
     }
 
     private func portStatus(_ forward: Forward) -> PortStatus {

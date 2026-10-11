@@ -139,7 +139,7 @@ enum Engine {
     /// 配置文件坏了的时候 load() 给的是默认值，拿它去连接只会连错地方。
     private static func configUsable() -> Bool {
         if ConfigStore.isCorrupt {
-            emit("配置文件读不了，先在应用里修好或重新保存，再连接")
+            emit(tr("配置文件读不了，先在应用里修好或重新保存，再连接", "Can't read the config file. Fix it or save it again in the app, then connect"))
             return false
         }
         return true
@@ -152,21 +152,21 @@ enum Engine {
             var procs = Shell.processes()
             if processAlive(config: config, procs: procs) {
                 let pid = readPID(config.vpnPidFile) ?? 0
-                emit("VPN 已在运行（PID \(pid)）")
+                emit(tr("VPN 已在运行（PID \(pid)）", "VPN is already running (PID \(pid))"))
                 arrangeVPNWatch(config: config, procs: procs, enable: enableWatch, takeOver: takeOverWatch)
                 return
             }
             stopShellWatchdog("_vpn_watchdog")
             switch startOpenConnect(config, credentialFile: credentialFile) {
             case .connected(let pid, let seconds):
-                emit("VPN 已连接（PID \(pid)，\(seconds) 秒）")
+                emit(tr("VPN 已连接（PID \(pid)，\(seconds) 秒）", "VPN connected (PID \(pid), \(seconds)s)"))
                 procs = Shell.processes()
                 arrangeVPNWatch(config: config, procs: procs, enable: enableWatch, takeOver: true)
             case .degraded:
-                emit("VPN 进程在运行，但路由还没出现")
+                emit(tr("VPN 进程在运行，但路由还没出现", "VPN process is running, but the route hasn't appeared yet"))
                 emit(logTail(config.vpnLogFile))
             case .failed:
-                emit("VPN 启动失败")
+                emit(tr("VPN 启动失败", "VPN failed to start"))
                 emit(logTail(config.vpnLogFile))
             }
         }
@@ -181,9 +181,9 @@ enum Engine {
             syncWanted(config: config)
             sleep(1)
             if openConnectProcesses().isEmpty {
-                emit("VPN 已断开")
+                emit(tr("VPN 已断开", "VPN disconnected"))
             } else {
-                emit("还有 openconnect 进程没退出")
+                emit(tr("还有 openconnect 进程没退出", "Some openconnect processes haven't exited"))
             }
         }
     }
@@ -204,7 +204,7 @@ enum Engine {
 
     /// Shadowrocket 没有可调用的开关，只能打开应用让人点。状态会在下一次检查里自己更新。
     private static func handOffShadowrocket(_ title: String, wantOn: Bool) {
-        emit("\(title) 没有命令行开关，已打开应用，请在里面\(wantOn ? "打开" : "关闭")开关")
+        emit(tr("\(title) 没有命令行开关，已打开应用，请在里面\(wantOn ? "打开" : "关闭")开关", "\(title) has no command-line switch. Opened the app; turn it \(wantOn ? "on" : "off") there"))
         _ = Shell.run("/usr/bin/open", [shadowrocketApp], timeout: 8)
     }
 
@@ -226,7 +226,7 @@ enum Engine {
     static func connectSystemVPN(_ name: String, label: String = "", kind: String = "") {
         let title = label.isEmpty ? name : label
         if systemVPNStatus(name) == "Connected" {
-            emit("\(title) 已在运行")
+            emit(tr("\(title) 已在运行", "\(title) is already running"))
             return
         }
         if kind == "forticlient" {
@@ -237,12 +237,12 @@ enum Engine {
             handOffShadowrocket(title, wantOn: true)
             return
         }
-        emit("正在连接 \(title)")
+        emit(tr("正在连接 \(title)", "Connecting \(title)"))
         _ = Shell.run("/usr/sbin/scutil", ["--nc", "start", name], timeout: 8)
         if waitSystemVPN(name, until: "Connected", seconds: 20) {
-            emit("\(title) 已连接")
+            emit(tr("\(title) 已连接", "\(title) connected"))
         } else {
-            emit("\(title) 还没连上")
+            emit(tr("\(title) 还没连上", "\(title) isn't connected yet"))
         }
     }
 
@@ -256,12 +256,12 @@ enum Engine {
             handOffShadowrocket(title, wantOn: false)
             return
         }
-        emit("正在断开 \(title)")
+        emit(tr("正在断开 \(title)", "Disconnecting \(title)"))
         _ = Shell.run("/usr/sbin/scutil", ["--nc", "stop", name], timeout: 8)
         if waitSystemVPN(name, until: "Disconnected", seconds: 8) {
-            emit("\(title) 已断开")
+            emit(tr("\(title) 已断开", "\(title) disconnected"))
         } else {
-            emit("\(title) 还在连接")
+            emit(tr("\(title) 还在连接", "\(title) is still connected"))
         }
     }
 
@@ -320,19 +320,19 @@ enum Engine {
 
     static func openSystemVPNApp(kind: String, label: String) {
         guard let path = systemVPNAppPath(kind: kind) else {
-            emit("\(label) 不是可打开的系统 VPN")
+            emit(tr("\(label) 不是可打开的系统 VPN", "\(label) isn't a system VPN that can be opened"))
             return
         }
         guard FileManager.default.fileExists(atPath: path) else {
-            emit("找不到 \(label)")
+            emit(tr("找不到 \(label)", "\(label) not found"))
             return
         }
-        emit("正在打开 \(label)")
+        emit(tr("正在打开 \(label)", "Opening \(label)"))
         let result = Shell.run("/usr/bin/open", [path], timeout: 8)
         if result.ok {
-            emit("已打开 \(label)")
+            emit(tr("已打开 \(label)", "Opened \(label)"))
         } else {
-            emit("\(label) 打开失败")
+            emit(tr("\(label) 打开失败", "Couldn't open \(label)"))
         }
     }
 
@@ -351,21 +351,21 @@ enum Engine {
     private static func endSystemVPNApp(kind: String, label: String) {
         let ids = systemVPNBundleIDs(kind: kind)
         guard !ids.isEmpty else {
-            emit("\(label) 不是可退出的系统 VPN")
+            emit(tr("\(label) 不是可退出的系统 VPN", "\(label) isn't a system VPN that can be quit"))
             return
         }
         let before = systemVPNAppProcesses(kind: kind)
         let apps = ids.flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0) }
         if before.isEmpty && apps.isEmpty {
-            emit("\(label) 没在运行")
+            emit(tr("\(label) 没在运行", "\(label) isn't running"))
             return
         }
-        emit("正在退出 \(label)")
+        emit(tr("正在退出 \(label)", "Quitting \(label)"))
         for app in apps {
             _ = app.terminate()
         }
         if waitUntilAppGone(kind: kind, seconds: 2) {
-            emit("\(label) 已退出")
+            emit(tr("\(label) 已退出", "\(label) quit"))
             return
         }
         for app in ids.flatMap({ NSRunningApplication.runningApplications(withBundleIdentifier: $0) }) {
@@ -373,14 +373,14 @@ enum Engine {
         }
         signalSystemVPNApp(kind: kind, signal: SIGTERM)
         if waitUntilAppGone(kind: kind, seconds: 2) {
-            emit("\(label) 已退出")
+            emit(tr("\(label) 已退出", "\(label) quit"))
             return
         }
         signalSystemVPNApp(kind: kind, signal: SIGKILL)
         if waitUntilAppGone(kind: kind, seconds: 2) {
-            emit("\(label) 已退出")
+            emit(tr("\(label) 已退出", "\(label) quit"))
         } else {
-            emit("\(label) 还没退出")
+            emit(tr("\(label) 还没退出", "\(label) hasn't quit yet"))
         }
     }
 
@@ -408,51 +408,51 @@ enum Engine {
 
     private static func connectFortiClient(service: String, title: String) {
         guard let login = FortiClient.savedLogin() else {
-            emit("\(title) 还没有密码")
+            emit(tr("\(title) 还没有密码", "\(title) has no password yet"))
             return
         }
-        emit("正在连接 \(title)")
+        emit(tr("正在连接 \(title)", "Connecting \(title)"))
         switch FortiClient.send(action: "connect", user: login.user, password: login.password) {
         case .accepted:
             break
         case .noNode:
-            emit("这台 Mac 上没有可用的 node，\(title) 连不上")
+            emit(tr("这台 Mac 上没有可用的 node，\(title) 连不上", "No usable node on this Mac, so \(title) can't connect"))
             return
         case .noAddon:
-            emit("找不到 \(title) 的连接组件")
+            emit(tr("找不到 \(title) 的连接组件", "Can't find the connection component for \(title)"))
             return
         case .rejected, .failed:
-            emit("\(title) 没有接受连接")
+            emit(tr("\(title) 没有接受连接", "\(title) didn't accept the connect request"))
             return
         }
         if waitSystemVPN(service, until: "Connected", seconds: 25) {
-            emit("\(title) 已连接")
+            emit(tr("\(title) 已连接", "\(title) connected"))
         } else if FortiClient.recentLoginRejected() {
-            emit("\(title) 登录被拒绝，请核对密码")
+            emit(tr("\(title) 登录被拒绝，请核对密码", "\(title) rejected the login. Check the password"))
         } else {
-            emit("\(title) 还没连上")
+            emit(tr("\(title) 还没连上", "\(title) isn't connected yet"))
         }
     }
 
     private static func disconnectFortiClient(service: String, title: String) {
-        emit("正在断开 \(title)")
+        emit(tr("正在断开 \(title)", "Disconnecting \(title)"))
         switch FortiClient.send(action: "disconnect", user: "", password: "") {
         case .accepted:
             break
         case .noNode:
-            emit("这台 Mac 上没有可用的 node，\(title) 断不开")
+            emit(tr("这台 Mac 上没有可用的 node，\(title) 断不开", "No usable node on this Mac, so \(title) can't disconnect"))
             return
         case .noAddon:
-            emit("找不到 \(title) 的连接组件")
+            emit(tr("找不到 \(title) 的连接组件", "Can't find the connection component for \(title)"))
             return
         case .rejected, .failed:
-            emit("\(title) 没有接受断开")
+            emit(tr("\(title) 没有接受断开", "\(title) didn't accept the disconnect request"))
             return
         }
         if waitSystemVPN(service, until: "Disconnected", seconds: 12) {
-            emit("\(title) 已断开")
+            emit(tr("\(title) 已断开", "\(title) disconnected"))
         } else {
-            emit("\(title) 还在连接")
+            emit(tr("\(title) 还在连接", "\(title) is still connected"))
         }
     }
 
@@ -488,7 +488,7 @@ enum Engine {
             let config = ConfigStore.load()
             let pending = config.forwards.filter { !forwardUp($0) }
             if pending.isEmpty {
-                emit("隧道已在运行")
+                emit(tr("隧道已在运行", "Tunnel is already running"))
                 arrangeTunnelWatch(config: config, procs: Shell.processes(), enable: enableWatch, takeOver: takeOverWatch)
                 return
             }
@@ -497,24 +497,24 @@ enum Engine {
             for forward in pending {
                 guard ensureJump(config, jump: config.jump(for: forward), startVPNIfNeeded: startVPNIfNeeded) else { return }
                 if let pid = listeners(forward.localPort).first {
-                    emit("\(forward.name) 的端口 \(forward.localPort) 已被占用（PID \(pid)）")
+                    emit(tr("\(forward.name) 的端口 \(forward.localPort) 已被占用（PID \(pid)）", "Port \(forward.localPort) for \(forward.name) is already in use (PID \(pid))"))
                     continue
                 }
-                emit("启动 \(forward.name)")
+                emit(tr("启动 \(forward.name)", "Starting \(forward.name)"))
                 if startAutossh(config, forwards: [forward]) {
                     started = true
                 }
             }
             guard started else {
-                emit("autossh 启动失败")
+                emit(tr("autossh 启动失败", "autossh failed to start"))
                 emit(logTail(config.tunnelLogFile))
                 return
             }
             if waitForPorts(config, seconds: 12) {
-                emit("隧道已就绪")
+                emit(tr("隧道已就绪", "Tunnel is ready"))
                 arrangeTunnelWatch(config: config, procs: Shell.processes(), enable: enableWatch, takeOver: true)
             } else {
-                emit("隧道还没完全就绪")
+                emit(tr("隧道还没完全就绪", "Tunnel isn't fully ready yet"))
                 emit(logTail(config.tunnelLogFile))
             }
         }
@@ -530,30 +530,30 @@ enum Engine {
             }
             let config = ConfigStore.load()
             guard let forward = config.forwards.first(where: { $0.localPort == localPort }) else {
-                emit("没有本地端口 \(localPort) 的转发")
+                emit(tr("没有本地端口 \(localPort) 的转发", "No forward on local port \(localPort)"))
                 return
             }
             if forwardUp(forward) {
-                emit("\(forward.name) 已在运行")
+                emit(tr("\(forward.name) 已在运行", "\(forward.name) is already running"))
                 arrangeTunnelWatch(config: config, procs: Shell.processes(), enable: enableWatch, takeOver: false)
                 return
             }
             guard ensureJump(config, jump: config.jump(for: forward), startVPNIfNeeded: startVPNIfNeeded) else { return }
             if let pid = listeners(forward.localPort).first {
-                emit("\(forward.name) 的端口 \(forward.localPort) 已被占用（PID \(pid)）")
+                emit(tr("\(forward.name) 的端口 \(forward.localPort) 已被占用（PID \(pid)）", "Port \(forward.localPort) for \(forward.name) is already in use (PID \(pid))"))
                 return
             }
-            emit("启动 \(forward.name)")
+            emit(tr("启动 \(forward.name)", "Starting \(forward.name)"))
             guard startAutossh(config, forwards: [forward]) else {
-                emit("\(forward.name) 启动失败")
+                emit(tr("\(forward.name) 启动失败", "\(forward.name) failed to start"))
                 emit(logTail(config.tunnelLogFile))
                 return
             }
             if waitForForward(forward, seconds: 12) {
-                emit("\(forward.name) 已就绪")
+                emit(tr("\(forward.name) 已就绪", "\(forward.name) is ready"))
                 arrangeTunnelWatch(config: config, procs: Shell.processes(), enable: enableWatch, takeOver: false)
             } else {
-                emit("\(forward.name) 还没就绪")
+                emit(tr("\(forward.name) 还没就绪", "\(forward.name) isn't ready yet"))
                 emit(logTail(config.tunnelLogFile))
             }
         }
@@ -569,26 +569,26 @@ enum Engine {
             }
             let config = ConfigStore.load()
             guard let forward = config.forwards.first(where: { $0.localPort == localPort }) else {
-                emit("没有本地端口 \(localPort) 的转发")
+                emit(tr("没有本地端口 \(localPort) 的转发", "No forward on local port \(localPort)"))
                 return
             }
             if shellWatchdogAlive("_tunnel_watchdog") {
                 stopShellWatchdog("_tunnel_watchdog")
-                emit("已停掉终端里的隧道守护，避免它把这条转发重新拉起来")
+                emit(tr("已停掉终端里的隧道守护，避免它把这条转发重新拉起来", "Stopped the terminal tunnel watchdog so it won't bring this forward back up"))
             }
             let shared = Shell.processes().contains { proc in
                 carries(proc, spec: forward.spec, config: config)
                     && config.forwards.contains { $0.localPort != forward.localPort && proc.command.contains($0.spec) }
             }
             if shared {
-                emit("\(forward.name) 和其他转发在同一个进程里，其余的会重新连上")
+                emit(tr("\(forward.name) 和其他转发在同一个进程里，其余的会重新连上", "\(forward.name) shares a process with other forwards; the others will reconnect"))
             }
             stopForward(config, forward, restoreOthers: true)
             sleep(1)
             if listeners(forward.localPort).isEmpty {
-                emit("\(forward.name) 已断开")
+                emit(tr("\(forward.name) 已断开", "\(forward.name) disconnected"))
             } else {
-                emit("\(forward.name) 的端口还没释放")
+                emit(tr("\(forward.name) 的端口还没释放", "The port for \(forward.name) hasn't been released yet"))
             }
         }
     }
@@ -607,9 +607,9 @@ enum Engine {
             syncWanted(config: config)
             sleep(1)
             if occupiedPort(config) == nil {
-                emit("隧道已断开")
+                emit(tr("隧道已断开", "Tunnel disconnected"))
             } else {
-                emit("还有转发端口没释放")
+                emit(tr("还有转发端口没释放", "Some forward ports haven't been released"))
             }
         }
     }
@@ -632,7 +632,7 @@ enum Engine {
             stopShellWatchdog("_vpn_watchdog")
             writeFlag(config.vpnWatchdogFile, true)
             startServiceIfNeeded()
-            emit("VPN 自动重连已改由本应用负责")
+            emit(tr("VPN 自动重连已改由本应用负责", "VPN auto-reconnect is now handled by this app"))
         }
     }
 
@@ -642,7 +642,7 @@ enum Engine {
             stopShellWatchdog("_tunnel_watchdog")
             writeFlag(config.tunnelWatchdogFile, true)
             startServiceIfNeeded()
-            emit("隧道自动重连已改由本应用负责")
+            emit(tr("隧道自动重连已改由本应用负责", "Tunnel auto-reconnect is now handled by this app"))
         }
     }
 
@@ -653,12 +653,12 @@ enum Engine {
                 stopShellWatchdog("_vpn_watchdog")
                 writeFlag(config.vpnWatchdogFile, true)
                 startServiceIfNeeded()
-                emit("已开启 VPN 自动重连")
+                emit(tr("已开启 VPN 自动重连", "VPN auto-reconnect on"))
             } else {
                 writeFlag(config.vpnWatchdogFile, false)
                 stopShellWatchdog("_vpn_watchdog")
                 syncWanted(config: config)
-                emit("已关闭 VPN 自动重连，当前连接保持不变")
+                emit(tr("已关闭 VPN 自动重连，当前连接保持不变", "VPN auto-reconnect off. The current connection stays as is"))
             }
         }
     }
@@ -670,12 +670,12 @@ enum Engine {
                 stopShellWatchdog("_tunnel_watchdog")
                 writeFlag(config.tunnelWatchdogFile, true)
                 startServiceIfNeeded()
-                emit("已开启隧道自动重连")
+                emit(tr("已开启隧道自动重连", "Tunnel auto-reconnect on"))
             } else {
                 writeFlag(config.tunnelWatchdogFile, false)
                 stopShellWatchdog("_tunnel_watchdog")
                 syncWanted(config: config)
-                emit("已关闭隧道自动重连，当前连接保持不变")
+                emit(tr("已关闭隧道自动重连，当前连接保持不变", "Tunnel auto-reconnect off. The current connection stays as is"))
             }
         }
     }
@@ -699,7 +699,7 @@ enum Engine {
     static func restartVPNPreservingFlag(config: AppConfig) {
         guard flag(config.vpnWatchdogFile) else { return }
         guard !shellWatchdogAlive("_vpn_watchdog") else { return }
-        emitLog(config.vpnLogFile, "强制重启 VPN")
+        emitLog(config.vpnLogFile, tr("强制重启 VPN", "Force-restarting VPN"))
         FileLock.with { stopOpenConnect(config) }
         sleep(3)
         guard flag(config.vpnWatchdogFile) else { return }
@@ -714,7 +714,7 @@ enum Engine {
         guard !shellWatchdogAlive("_tunnel_watchdog") else { return }
         let down = config.forwards.filter { $0.enabled && !forwardUp($0) }
         guard !down.isEmpty else { return }
-        emitLog(config.tunnelLogFile, "隧道异常，重连 \(down.map(\.name).joined(separator: "、"))")
+        emitLog(config.tunnelLogFile, tr("隧道异常，重连 \(down.map(\.name).joined(separator: "、"))", "Tunnel unhealthy, reconnecting \(down.map(\.name).joined(separator: ", "))"))
         FileLock.with {
             for forward in down {
                 stopForward(config, forward, restoreOthers: false)
@@ -765,7 +765,7 @@ enum Engine {
             Thread.sleep(forTimeInterval: 0.2)
         }
         try? FileManager.default.removeItem(atPath: path)
-        emit("后台守护已停")
+        emit(tr("后台守护已停", "Background service stopped"))
     }
 
     static func ensureService() {
@@ -860,12 +860,12 @@ enum Engine {
 
     private static func startOpenConnect(_ config: AppConfig, credentialFile: String? = nil) -> VPNStart {
         guard FileManager.default.isExecutableFile(atPath: config.openconnectPath) else {
-            emit("找不到 \(config.openconnectPath)")
+            emit(tr("找不到 \(config.openconnectPath)", "\(config.openconnectPath) not found"))
             return .failed
         }
         let file = credentialFile ?? config.credentialFile
         guard let credential = Credentials.load(file: file) else {
-            emit("\(file) 缺少 host、user 或 password")
+            emit(tr("\(file) 缺少 host、user 或 password", "\(file) is missing host, user or password"))
             return .failed
         }
         let pidPath = PathExpander.expand(config.vpnPidFile)
@@ -873,7 +873,7 @@ enum Engine {
         try? FileManager.default.removeItem(atPath: pidPath)
         try? PathExpander.expand(file).write(toFile: ConfigStore.activeCredentialPath, atomically: true, encoding: .utf8)
         let payload = Data("\(credential.user)\n\(credential.password)\n".utf8)
-        emitLog(config.vpnLogFile, "开始连接 VPN")
+        emitLog(config.vpnLogFile, tr("开始连接 VPN", "Connecting VPN"))
         let result = Shell.run(
             config.openconnectPath,
             openConnectArguments(host: credential.host, user: credential.user, pidFile: pidPath, timeout: config.reconnectTimeout),
@@ -971,20 +971,20 @@ enum Engine {
     private static func startAutossh(_ config: AppConfig, forwards: [Forward]? = nil) -> Bool {
         let chosen = forwards ?? config.forwards.filter(\.enabled)
         guard !chosen.isEmpty else {
-            emit("没有要连接的转发")
+            emit(tr("没有要连接的转发", "No forwards to connect"))
             return false
         }
         guard FileManager.default.isExecutableFile(atPath: config.autosshPath) else {
-            emit("找不到 \(config.autosshPath)")
+            emit(tr("找不到 \(config.autosshPath)", "\(config.autosshPath) not found"))
             return false
         }
         let identity = chosen.first.map { config.jump(for: $0).identityFile } ?? config.identityFile
         let key = PathExpander.expand(identity)
         guard FileManager.default.isReadableFile(atPath: key) else {
-            emit("读不到密钥 \(identity)")
+            emit(tr("读不到密钥 \(identity)", "Can't read key \(identity)"))
             return false
         }
-        emitLog(config.tunnelLogFile, "开始连接 \(chosen.map(\.name).joined(separator: "、"))")
+        emitLog(config.tunnelLogFile, tr("开始连接 \(chosen.map(\.name).joined(separator: "、"))", "Connecting \(chosen.map(\.name).joined(separator: ", "))"))
         let result = Shell.run(
             config.autosshPath,
             autosshArguments(config: config, forwards: chosen),
@@ -1010,7 +1010,7 @@ enum Engine {
                 signal(pid, sudo: true, force: true)
             }
             if let pid = owned.foreign.first {
-                emit("\(forward.name) 的端口 \(forward.localPort) 被别的程序占着（PID \(pid)），没有动它")
+                emit(tr("\(forward.name) 的端口 \(forward.localPort) 被别的程序占着（PID \(pid)），没有动它", "Port \(forward.localPort) for \(forward.name) is held by another program (PID \(pid)); left it alone"))
             }
         }
     }
@@ -1026,7 +1026,7 @@ enum Engine {
             signal(pid, sudo: true, force: true)
         }
         if let pid = owned.foreign.first {
-            emit("\(forward.name) 的端口 \(forward.localPort) 被别的程序占着（PID \(pid)），没有动它")
+            emit(tr("\(forward.name) 的端口 \(forward.localPort) 被别的程序占着（PID \(pid)），没有动它", "Port \(forward.localPort) for \(forward.name) is held by another program (PID \(pid)); left it alone"))
         }
         if restoreOthers {
             restoreEnabled(config, except: forward.localPort)
@@ -1036,7 +1036,7 @@ enum Engine {
     private static func restoreEnabled(_ config: AppConfig, except: Int?) {
         for forward in config.forwards where forward.enabled && forward.localPort != except {
             if listeners(forward.localPort).isEmpty {
-                emit("重新连接 \(forward.name)")
+                emit(tr("重新连接 \(forward.name)", "Reconnecting \(forward.name)"))
                 _ = startAutossh(config, forwards: [forward])
             }
         }
@@ -1049,14 +1049,14 @@ enum Engine {
 
     private static func ensureJump(_ config: AppConfig, jump: Jump? = nil, startVPNIfNeeded: Bool) -> Bool {
         let target = jump ?? config.primaryJump
-        emit("检查跳板机连通性")
+        emit(tr("检查跳板机连通性", "Checking the jump host"))
         if jumpReachable(config, jump: target, timeout: 5) {
-            emit("跳板机可达")
+            emit(tr("跳板机可达", "Jump host is reachable"))
             return true
         }
-        emit("跳板机不可达，先连接 VPN")
+        emit(tr("跳板机不可达，先连接 VPN", "Jump host unreachable, connecting VPN first"))
         guard startVPNIfNeeded else {
-            emit("已取消连接隧道")
+            emit(tr("已取消连接隧道", "Tunnel connection cancelled"))
             return false
         }
         if !processAlive(config: config, procs: Shell.processes()) {
@@ -1066,22 +1066,22 @@ enum Engine {
             let credential = owner.isSystemVPN ? nil : owner.credentialFile
             switch startOpenConnect(config, credentialFile: credential) {
             case .connected(let pid, let seconds):
-                emit("VPN 已连接（PID \(pid)，\(seconds) 秒）")
+                emit(tr("VPN 已连接（PID \(pid)，\(seconds) 秒）", "VPN connected (PID \(pid), \(seconds)s)"))
                 arrangeVPNWatch(config: config, procs: Shell.processes(), enable: Prefs.vpnAutoReconnect, takeOver: true)
             case .degraded:
-                emit("VPN 进程在，但路由未确认，继续等跳板机")
+                emit(tr("VPN 进程在，但路由未确认，继续等跳板机", "VPN process is up but the route isn't confirmed; still waiting for the jump host"))
             case .failed:
-                emit("VPN 没连上，隧道中止")
+                emit(tr("VPN 没连上，隧道中止", "VPN didn't connect, tunnel aborted"))
                 emit(logTail(config.vpnLogFile))
                 return false
             }
         }
-        emit("等待跳板机，最多 30 秒")
+        emit(tr("等待跳板机，最多 30 秒", "Waiting for the jump host, up to 30 seconds"))
         guard waitForJump(config, jump: target, seconds: 30) else {
-            emit("30 秒内跳板机仍不可达")
+            emit(tr("30 秒内跳板机仍不可达", "Jump host still unreachable after 30 seconds"))
             return false
         }
-        emit("跳板机已可达")
+        emit(tr("跳板机已可达", "Jump host is now reachable"))
         return true
     }
 
@@ -1235,26 +1235,26 @@ enum Engine {
         guard enable else { return }
         let shell = procs.contains { isShellWatchdog($0.command, marker: "_vpn_watchdog") } || shellWatchdogAlive("_vpn_watchdog")
         if shell && !takeOver {
-            emit("自动重连仍由终端守护负责")
+            emit(tr("自动重连仍由终端守护负责", "Auto-reconnect is still handled by the terminal watchdog"))
             return
         }
         if shell { stopShellWatchdog("_vpn_watchdog") }
         writeFlag(config.vpnWatchdogFile, true)
         startServiceIfNeeded()
-        emit("VPN 自动重连由本应用负责")
+        emit(tr("VPN 自动重连由本应用负责", "VPN auto-reconnect is handled by this app"))
     }
 
     private static func arrangeTunnelWatch(config: AppConfig, procs: [Proc], enable: Bool, takeOver: Bool) {
         guard enable else { return }
         let shell = procs.contains { isShellWatchdog($0.command, marker: "_tunnel_watchdog") } || shellWatchdogAlive("_tunnel_watchdog")
         if shell && !takeOver {
-            emit("隧道自动重连仍由终端守护负责")
+            emit(tr("隧道自动重连仍由终端守护负责", "Tunnel auto-reconnect is still handled by the terminal watchdog"))
             return
         }
         if shell { stopShellWatchdog("_tunnel_watchdog") }
         writeFlag(config.tunnelWatchdogFile, true)
         startServiceIfNeeded()
-        emit("隧道自动重连由本应用负责")
+        emit(tr("隧道自动重连由本应用负责", "Tunnel auto-reconnect is handled by this app"))
     }
 
     private static func healIfNeeded(vpn: VPNSnapshot, tunnel: TunnelSnapshot) {
@@ -1270,7 +1270,7 @@ enum Engine {
         ConfigStore.setWanted(true)
         guard !serviceAlive() else { return }
         guard let executable = Bundle.main.executableURL else {
-            emit("找不到应用自己的可执行文件，没能拉起后台守护")
+            emit(tr("找不到应用自己的可执行文件，没能拉起后台守护", "Can't find the app's own executable, so the background service wasn't started"))
             return
         }
         do {
@@ -1284,9 +1284,9 @@ enum Engine {
             while Date() < deadline && !serviceAlive() {
                 Thread.sleep(forTimeInterval: 0.1)
             }
-            emit(serviceAlive() ? "后台守护已启动" : "后台守护已拉起，但还没确认 pid")
+            emit(serviceAlive() ? tr("后台守护已启动", "Background service started") : tr("后台守护已拉起，但还没确认 pid", "Background service launched, but its pid isn't confirmed yet"))
         } catch {
-            emit("后台守护启动失败：\(error.localizedDescription)")
+            emit(tr("后台守护启动失败：\(error.localizedDescription)", "Background service failed to start: \(error.localizedDescription)"))
         }
     }
 
@@ -1337,7 +1337,7 @@ enum Engine {
     private static func logTail(_ path: String) -> String {
         let text = Shell.tail(path: PathExpander.expand(path), lines: 8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? "日志是空的" : text
+        return text.isEmpty ? tr("日志是空的", "The log is empty") : text
     }
 
     static func emit(_ message: String) {

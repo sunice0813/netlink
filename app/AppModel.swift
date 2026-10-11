@@ -48,7 +48,7 @@ final class AppModel {
             config = loaded
         } else {
             config = AppConfig()
-            configWarning = "配置文件读不了，先按默认值显示。点保存才会覆盖原文件。"
+            configWarning = tr("配置文件读不了，先按默认值显示。点保存才会覆盖原文件。", "Can't read the config file. Showing defaults for now; the original file is only overwritten when you click Save.")
         }
         AppLocator.model = self
     }
@@ -68,21 +68,21 @@ final class AppModel {
             tunnel.autosshInstalled ? nil : config.autosshPath,
         ].compactMap { $0 }
         if !missing.isEmpty {
-            let names = missing.map { ($0 as NSString).lastPathComponent }.joined(separator: "、")
+            let names = missing.map { ($0 as NSString).lastPathComponent }.joined(separator: tr("、", ", "))
             guard let brew = Setup.brewPath() else {
-                return Banner(text: "找不到 \(names)，需要先安装 Homebrew", action: .openHomebrew)
+                return Banner(text: tr("找不到 \(names)，需要先安装 Homebrew", "\(names) not found. Install Homebrew first"), action: .openHomebrew)
             }
             if !Setup.missingFormulas(config: config, brew: brew).isEmpty {
-                return Banner(text: "找不到 \(names)", action: .installDependencies)
+                return Banner(text: tr("找不到 \(names)", "\(names) not found"), action: .installDependencies)
             }
-            return Banner(text: "找不到 \(missing.joined(separator: "、"))")
+            return Banner(text: tr("找不到 \(missing.joined(separator: "、"))", "\(missing.joined(separator: ", ")) not found"))
         }
         if !vpn.sudoOK {
-            let names = vpn.sudoMissing.map { ($0 as NSString).lastPathComponent }.joined(separator: "、")
-            return Banner(text: "sudo 不能免密执行 \(names)，连接和断开会失败", action: .configureSudo)
+            let names = vpn.sudoMissing.map { ($0 as NSString).lastPathComponent }.joined(separator: tr("、", ", "))
+            return Banner(text: tr("sudo 不能免密执行 \(names)，连接和断开会失败", "sudo can't run \(names) without a password, so connecting and disconnecting will fail"), action: .configureSudo)
         }
         if vpn.credentialOK == false && vpn.phase != .checking {
-            return Banner(text: "读不到 \(config.credentialFile) 里的 host / user / password")
+            return Banner(text: tr("读不到 \(config.credentialFile) 里的 host / user / password", "Can't read host / user / password from \(config.credentialFile)"))
         }
         return nil
     }
@@ -90,12 +90,12 @@ final class AppModel {
     func perform(_ action: SetupAction) {
         switch action {
         case .installDependencies:
-            run(.setup, "正在用 Homebrew 安装依赖，可能要几分钟") { Setup.installDependencies() }
+            run(.setup, tr("正在用 Homebrew 安装依赖，可能要几分钟", "Installing dependencies with Homebrew. This may take a few minutes")) { Setup.installDependencies() }
         case .configureSudo:
-            run(.setup, "正在配置免密 sudo，请在弹出的窗口里输入密码") {
+            run(.setup, tr("正在配置免密 sudo，请在弹出的窗口里输入密码", "Setting up passwordless sudo. Enter your password in the dialog")) {
                 switch Setup.installSudoers() {
-                case .done: Engine.emit("免密 sudo 已配置")
-                case .cancelled: Engine.emit("已取消，可以点顶部的「配置免密 sudo」重试")
+                case .done: Engine.emit(tr("免密 sudo 已配置", "Passwordless sudo is set up"))
+                case .cancelled: Engine.emit(tr("已取消，可以点顶部的「配置免密 sudo」重试", "Cancelled. Click \"Set up sudo\" at the top to try again"))
                 case .failed(let reason): Engine.emit(reason)
                 }
             }
@@ -172,17 +172,17 @@ final class AppModel {
 
     func refresh(manual: Bool = false) async {
         if refreshing {
-            if manual { post("正在刷新，这一步还没结束") }
+            if manual { post(tr("正在刷新，这一步还没结束", "Already refreshing")) }
             return
         }
         if busy {
-            if manual { post("\(busyLabel ?? "上一步")，这一步还没结束") }
+            if manual { post(tr("\(busyLabel ?? "上一步")，这一步还没结束", "\(busyLabel ?? "The previous step") — still in progress")) }
             return
         }
         refreshing = true
         if manual {
             refreshingVisible = true
-            post("正在刷新")
+            post(tr("正在刷新", "Refreshing"))
             await Task.yield()
         }
         defer {
@@ -210,7 +210,7 @@ final class AppModel {
             self.config = loaded
         }
         if manual {
-            post("已刷新 \(Self.clock.string(from: now))")
+            post(tr("已刷新 \(Self.clock.string(from: now))", "Refreshed at \(Self.clock.string(from: now))"))
         }
         autoSetup()
     }
@@ -219,7 +219,7 @@ final class AppModel {
         fortiConnectAfterSave = thenConnect
         fortiPrompt = true
         if thenConnect {
-            post("先填写 FortiClient 的密码")
+            post(tr("先填写 FortiClient 的密码", "Enter the FortiClient password first"))
         }
     }
 
@@ -235,13 +235,13 @@ final class AppModel {
                 askFortiAccount(thenConnect: true)
                 return
             }
-            run(.vpnConnect, "正在连接 \(name)", systemVPN: true) {
+            run(.vpnConnect, tr("正在连接 \(name)", "Connecting \(name)"), systemVPN: true) {
                 Engine.connectSystemVPN(service, label: name, kind: kind)
             }
             return
         }
         let file = profile?.credentialFile ?? config.credentialFile
-        run(.vpnConnect, "正在连接 \(name)") {
+        run(.vpnConnect, tr("正在连接 \(name)", "Connecting \(name)")) {
             let target = Credentials.load(file: file)?.host ?? ""
             let running = Engine.runningVPNHost()
             if !running.isEmpty, !target.isEmpty, !running.contains(target), !target.contains(running) {
@@ -256,7 +256,7 @@ final class AppModel {
     func disconnectVPNProfile(_ id: UUID) {
         if let profile = config.vpns.first(where: { $0.id == id }), profile.isSystemVPN {
             let service = profile.serviceName
-            run(.vpnDisconnect, "正在断开 \(profile.name)", systemVPN: true) {
+            run(.vpnDisconnect, tr("正在断开 \(profile.name)", "Disconnecting \(profile.name)"), systemVPN: true) {
                 Engine.disconnectSystemVPN(service, label: profile.name, kind: profile.kind)
             }
             return
@@ -264,13 +264,13 @@ final class AppModel {
         let file = config.vpns.first { $0.id == id }?.credentialFile ?? config.credentialFile
         let host = Credentials.load(file: file)?.host ?? ""
         let only = config.vpns.filter { !$0.isSystemVPN }.count <= 1
-        run(.vpnDisconnect, "正在断开 VPN") {
+        run(.vpnDisconnect, tr("正在断开 VPN", "Disconnecting VPN")) {
             let running = Engine.runningVPNHost()
             let matches = running.isEmpty || only || host.isEmpty || running.contains(host) || host.contains(running)
             if matches {
                 Engine.disconnectVPN()
             } else {
-                Engine.emit("这个 VPN 没在连接")
+                Engine.emit(tr("这个 VPN 没在连接", "This VPN isn't connected"))
             }
         }
     }
@@ -279,14 +279,14 @@ final class AppModel {
 
     func openSystemVPNApp(_ id: UUID) {
         guard let profile = config.vpns.first(where: { $0.id == id }), profile.isSystemVPN else { return }
-        run(.vpnOpenApp, "正在打开 \(profile.name)", systemVPN: true) {
+        run(.vpnOpenApp, tr("正在打开 \(profile.name)", "Opening \(profile.name)"), systemVPN: true) {
             Engine.openSystemVPNApp(kind: profile.kind, label: profile.name)
         }
     }
 
     func quitSystemVPNApp(_ id: UUID) {
         guard let profile = config.vpns.first(where: { $0.id == id }), profile.isSystemVPN else { return }
-        run(.vpnQuitApp, "正在退出 \(profile.name)", systemVPN: true) {
+        run(.vpnQuitApp, tr("正在退出 \(profile.name)", "Quitting \(profile.name)"), systemVPN: true) {
             Engine.quitSystemVPNApp(service: profile.serviceName, kind: profile.kind, label: profile.name)
         }
     }
@@ -301,18 +301,18 @@ final class AppModel {
                 askFortiAccount(thenConnect: true)
                 return
             }
-            run(.vpnRestart, "正在重启 \(name)", systemVPN: true) {
+            run(.vpnRestart, tr("正在重启 \(name)", "Restarting \(name)"), systemVPN: true) {
                 Engine.restartSystemVPN(service, label: name, kind: kind)
             }
             return
         }
         let file = profile?.credentialFile ?? config.credentialFile
-        run(.vpnRestart, "正在重启 \(name)") {
+        run(.vpnRestart, tr("正在重启 \(name)", "Restarting \(name)")) {
             Engine.restartVPN(enableWatch: Prefs.vpnAutoReconnect, credentialFile: file)
         }
     }
-    func connectTunnel() { run(.tunnelConnect, "正在连接隧道") { Engine.connectTunnel(enableWatch: Prefs.tunnelAutoReconnect, takeOverWatch: false, startVPNIfNeeded: true) } }
-    func disconnectTunnel() { run(.tunnelDisconnect, "正在断开隧道") { Engine.disconnectTunnel() } }
+    func connectTunnel() { run(.tunnelConnect, tr("正在连接隧道", "Connecting tunnel")) { Engine.connectTunnel(enableWatch: Prefs.tunnelAutoReconnect, takeOverWatch: false, startVPNIfNeeded: true) } }
+    func disconnectTunnel() { run(.tunnelDisconnect, tr("正在断开隧道", "Disconnecting tunnel")) { Engine.disconnectTunnel() } }
 
     func connectJump(_ id: UUID) {
         if config.jumps.count <= 1 {
@@ -320,7 +320,7 @@ final class AppModel {
             return
         }
         let ports = config.forwards(on: id).map(\.localPort)
-        run(.tunnelConnect, "正在连接跳板") {
+        run(.tunnelConnect, tr("正在连接跳板", "Connecting jump host")) {
             for port in ports {
                 Engine.connectForward(localPort: port, enableWatch: Prefs.tunnelAutoReconnect, startVPNIfNeeded: true)
             }
@@ -333,7 +333,7 @@ final class AppModel {
             return
         }
         let ports = config.forwards(on: id).map(\.localPort)
-        run(.tunnelDisconnect, "正在断开跳板") {
+        run(.tunnelDisconnect, tr("正在断开跳板", "Disconnecting jump host")) {
             for port in ports {
                 Engine.disconnectForward(localPort: port)
             }
@@ -346,7 +346,7 @@ final class AppModel {
             return
         }
         let ports = config.forwards(on: id).map(\.localPort)
-        run(.tunnelRestart, "正在重启跳板") {
+        run(.tunnelRestart, tr("正在重启跳板", "Restarting jump host")) {
             for port in ports {
                 Engine.disconnectForward(localPort: port)
             }
@@ -356,27 +356,27 @@ final class AppModel {
         }
     }
     func connectForward(_ port: Int) {
-        let name = config.forwards.first { $0.localPort == port }?.name ?? "转发"
-        run(.forwardConnect(port), "正在连接 \(name)") {
+        let name = config.forwards.first { $0.localPort == port }?.name ?? tr("转发", "Forward")
+        run(.forwardConnect(port), tr("正在连接 \(name)", "Connecting \(name)")) {
             Engine.connectForward(localPort: port, enableWatch: Prefs.tunnelAutoReconnect, startVPNIfNeeded: true)
         }
     }
     func disconnectForward(_ port: Int) {
-        let name = config.forwards.first { $0.localPort == port }?.name ?? "转发"
-        run(.forwardDisconnect(port), "正在断开 \(name)") {
+        let name = config.forwards.first { $0.localPort == port }?.name ?? tr("转发", "Forward")
+        run(.forwardDisconnect(port), tr("正在断开 \(name)", "Disconnecting \(name)")) {
             Engine.disconnectForward(localPort: port)
         }
     }
-    func restartTunnel() { run(.tunnelRestart, "正在重启隧道") { Engine.restartTunnel(enableWatch: Prefs.tunnelAutoReconnect) } }
-    func takeOverVPN() { run(.vpnTakeover, "正在接管 VPN 守护") { Engine.takeOverVPN() } }
-    func takeOverTunnel() { run(.tunnelTakeover, "正在接管隧道守护") { Engine.takeOverTunnel() } }
+    func restartTunnel() { run(.tunnelRestart, tr("正在重启隧道", "Restarting tunnel")) { Engine.restartTunnel(enableWatch: Prefs.tunnelAutoReconnect) } }
+    func takeOverVPN() { run(.vpnTakeover, tr("正在接管 VPN 守护", "Taking over the VPN watchdog")) { Engine.takeOverVPN() } }
+    func takeOverTunnel() { run(.tunnelTakeover, tr("正在接管隧道守护", "Taking over the tunnel watchdog")) { Engine.takeOverTunnel() } }
     func setVPNWatch(_ on: Bool) {
         Prefs.vpnAutoReconnect = on
-        run(on ? .vpnWatchOn : .vpnWatchOff, on ? "正在开启 VPN 自动重连" : "正在关闭 VPN 自动重连") { Engine.setVPNWatch(on: on) }
+        run(on ? .vpnWatchOn : .vpnWatchOff, on ? tr("正在开启 VPN 自动重连", "Turning on VPN auto-reconnect") : tr("正在关闭 VPN 自动重连", "Turning off VPN auto-reconnect")) { Engine.setVPNWatch(on: on) }
     }
     func setTunnelWatch(_ on: Bool) {
         Prefs.tunnelAutoReconnect = on
-        run(on ? .tunnelWatchOn : .tunnelWatchOff, on ? "正在开启隧道自动重连" : "正在关闭隧道自动重连") { Engine.setTunnelWatch(on: on) }
+        run(on ? .tunnelWatchOn : .tunnelWatchOff, on ? tr("正在开启隧道自动重连", "Turning on tunnel auto-reconnect") : tr("正在关闭隧道自动重连", "Turning off tunnel auto-reconnect")) { Engine.setTunnelWatch(on: on) }
     }
 
     func save(config newConfig: AppConfig) throws {
@@ -476,7 +476,7 @@ final class AppModel {
         next.forwards[index].jumpID = jumpID == Jump.primary ? nil : jumpID
         do {
             try save(config: next)
-            post("隧道已挂到新跳板，重新连接后生效")
+            post(tr("隧道已挂到新跳板，重新连接后生效", "Tunnel moved to the new jump host. Reconnect to apply"))
         } catch {
             post(error.localizedDescription)
         }
@@ -488,7 +488,7 @@ final class AppModel {
         if let via {
             guard via != id, config.vpns.contains(where: { $0.id == via }) else { return }
             guard !config.upstreamIDs(of: via).contains(id) else {
-                post("不能绕成一圈")
+                post(tr("不能绕成一圈", "That would create a loop"))
                 return
             }
         }
@@ -499,9 +499,9 @@ final class AppModel {
         do {
             try save(config: next)
             if let via, let name = next.vpns.first(where: { $0.id == via })?.name {
-                post("\(next.vpns[index].name) 的流量经过 \(name)")
+                post(tr("\(next.vpns[index].name) 的流量经过 \(name)", "\(next.vpns[index].name) now goes through \(name)"))
             } else {
-                post("\(next.vpns[index].name) 直接从本机出去")
+                post(tr("\(next.vpns[index].name) 直接从本机出去", "\(next.vpns[index].name) now goes out directly from this Mac"))
             }
         } catch {
             post(error.localizedDescription)
@@ -516,7 +516,7 @@ final class AppModel {
         next.jumps[index].vpnID = vpnID == VPNProfile.primary ? nil : vpnID
         do {
             try save(config: next)
-            post("跳板已挂到新 VPN")
+            post(tr("跳板已挂到新 VPN", "Jump host moved to the new VPN"))
         } catch {
             post(error.localizedDescription)
         }
@@ -544,8 +544,8 @@ final class AppModel {
 
     func removeForward(_ port: Int) {
         guard config.forwards.count > 1 else { return }
-        let name = config.forwards.first { $0.localPort == port }?.name ?? "转发"
-        run(.forwardDisconnect(port), "正在移除 \(name)") {
+        let name = config.forwards.first { $0.localPort == port }?.name ?? tr("转发", "Forward")
+        run(.forwardDisconnect(port), tr("正在移除 \(name)", "Removing \(name)")) {
             Engine.disconnectForward(localPort: port)
             ConfigStore.mutate { config in
                 config.forwards.removeAll { $0.localPort == port }
@@ -557,7 +557,7 @@ final class AppModel {
     func removeJump(_ id: UUID) {
         guard config.jumps.count > 1 else { return }
         if !config.forwards(on: id).isEmpty {
-            post("先删掉这台跳板上的隧道")
+            post(tr("先删掉这台跳板上的隧道", "Remove the tunnels on this jump host first"))
             return
         }
         var next = config
@@ -572,12 +572,12 @@ final class AppModel {
     func removeVPN(_ id: UUID) {
         guard config.vpns.count > 1, let profile = config.vpns.first(where: { $0.id == id }) else { return }
         if id == VPNProfile.primary {
-            post("主 VPN 不能删，可以改账号")
+            post(tr("主 VPN 不能删，可以改账号", "The primary VPN can't be removed, but you can change its account"))
             return
         }
         let file = profile.credentialFile
         let host = Credentials.load(file: file)?.host ?? ""
-        run(.vpnDisconnect, "正在移除 \(profile.name)") {
+        run(.vpnDisconnect, tr("正在移除 \(profile.name)", "Removing \(profile.name)")) {
             let running = Engine.runningVPNHost()
             if !running.isEmpty, !host.isEmpty, running.contains(host) || host.contains(running) {
                 Engine.disconnectVPN()
@@ -596,14 +596,14 @@ final class AppModel {
     private func run(_ job: Job, _ label: String, systemVPN: Bool = false, _ work: @escaping () -> Void) {
         if systemVPN {
             guard !systemBusy else {
-                post(systemBusyLabel.map { "\($0)，这一步还没结束" } ?? "上一步还没结束")
+                post(systemBusyLabel.map { tr("\($0)，这一步还没结束", "\($0) — still in progress") } ?? tr("上一步还没结束", "The previous step is still in progress"))
                 return
             }
             systemBusy = true
             systemBusyLabel = label
         } else {
             guard !busy else {
-                post(busyLabel.map { "\($0)，这一步还没结束" } ?? "上一步还没结束")
+                post(busyLabel.map { tr("\($0)，这一步还没结束", "\($0) — still in progress") } ?? tr("上一步还没结束", "The previous step is still in progress"))
                 return
             }
             busy = true
@@ -620,7 +620,7 @@ final class AppModel {
             Task { @MainActor in
                 self.journal = lines
                 let result = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines)
-                self.post((result?.isEmpty == false ? result! : "完成"))
+                self.post((result?.isEmpty == false ? result! : tr("完成", "Done")))
                 if systemVPN {
                     self.systemBusy = false
                     self.systemBusyLabel = nil
@@ -678,9 +678,9 @@ enum SetupAction: Equatable {
 
     var title: String {
         switch self {
-        case .installDependencies: return "用 Homebrew 安装"
-        case .configureSudo: return "配置免密 sudo"
-        case .openHomebrew: return "打开 brew.sh"
+        case .installDependencies: return tr("用 Homebrew 安装", "Install with Homebrew")
+        case .configureSudo: return tr("配置免密 sudo", "Set up sudo")
+        case .openHomebrew: return tr("打开 brew.sh", "Open brew.sh")
         }
     }
 }
@@ -701,11 +701,11 @@ enum SaveError: LocalizedError {
 extension WatchdogOwner {
     var label: String {
         switch self {
-        case .off: return "自动重连：关"
-        case .shell: return "自动重连：终端守护"
-        case .app: return "自动重连：本应用"
-        case .both: return "自动重连：终端和本应用都在跑"
-        case .stale: return "自动重连：标记还在，进程不在"
+        case .off: return tr("自动重连：关", "Auto-reconnect: off")
+        case .shell: return tr("自动重连：终端守护", "Auto-reconnect: terminal watchdog")
+        case .app: return tr("自动重连：本应用", "Auto-reconnect: this app")
+        case .both: return tr("自动重连：终端和本应用都在跑", "Auto-reconnect: both terminal and this app are running")
+        case .stale: return tr("自动重连：标记还在，进程不在", "Auto-reconnect: flag set, process not running")
         }
     }
 }
@@ -713,10 +713,10 @@ extension WatchdogOwner {
 extension LinkPhase {
     var title: String {
         switch self {
-        case .checking: return "检查中"
-        case .up: return "已连接"
-        case .degraded: return "不完整"
-        case .down: return "未连接"
+        case .checking: return tr("检查中", "Checking")
+        case .up: return tr("已连接", "Connected")
+        case .degraded: return tr("不完整", "Incomplete")
+        case .down: return tr("未连接", "Disconnected")
         }
     }
 }

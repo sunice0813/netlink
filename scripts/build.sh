@@ -30,6 +30,8 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$BUILD_DIR/$EXEC_NAME" "$APP_BUNDLE/Contents/MacOS/$EXEC_NAME"
 cp "$APP_DIR/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+# 系统菜单和 Finder 里的名字按 lproj 本地化；应用自己的文案在代码里（见 L10n.swift）。
+cp -R "$APP_DIR/Resources/"*.lproj "$APP_BUNDLE/Contents/Resources/"
 
 if [ -n "${NETLINK_VERSION:-}" ]; then
   if ! [[ "$NETLINK_VERSION" =~ ^[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.-]+)?$ ]]; then

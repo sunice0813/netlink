@@ -118,7 +118,7 @@ enum Shell {
         let binary = sudo ? "/usr/bin/sudo" : launchPath
         let argv = sudo ? ["-n", launchPath] + arguments : arguments
         guard FileManager.default.isExecutableFile(atPath: binary) else {
-            return CommandResult(code: 127, stdout: "", stderr: "找不到 \(binary)")
+            return CommandResult(code: 127, stdout: "", stderr: tr("找不到 \(binary)", "\(binary) not found"))
         }
 
         let process = Process()

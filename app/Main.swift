@@ -113,7 +113,7 @@ struct NetLinkApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
-        Window("内网连接", id: "main") {
+        Window(tr("内网连接", "NetLink"), id: "main") {
             ContentView(model: model)
                 .themed()
         }

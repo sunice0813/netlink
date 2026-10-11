@@ -16,6 +16,15 @@ enum SelfTest {
         check("appearance default", AppearanceChoice.parse(nil) == .system)
         check("appearance dark", AppearanceChoice.parse("dark") == .dark)
         check("appearance unknown", AppearanceChoice.parse("nope") == .system)
+        check("language default", AppLanguage.parse(nil) == .system && AppLanguage.parse("nope") == .system)
+        check("language follows chinese system", L10n.isChinese(.system, preferred: ["zh-Hans-CN", "en-CN"]))
+        check("language follows traditional chinese", L10n.isChinese(.system, preferred: ["zh-Hant-TW"]))
+        check("language falls back to english", !L10n.isChinese(.system, preferred: ["ja-JP", "zh-Hans"]))
+        check("language empty list is english", !L10n.isChinese(.system, preferred: []))
+        check("language forced", L10n.isChinese(.zh, preferred: ["en-US"]) && !L10n.isChinese(.en, preferred: ["zh-Hans"]))
+        check("default name to english", L10n.localizedDefault("跳板", chinese: false) == "Jump host")
+        check("default name to chinese", L10n.localizedDefault("Local", chinese: true) == "本机")
+        check("custom name untouched", L10n.localizedDefault("GitLab", chinese: false) == "GitLab" && L10n.localizedDefault("跳板 2", chinese: false) == "跳板 2")
 
         let parsed = Credentials.parse("host=vpn.example\nuser=alice\npassword=s3cret\n")
         check("parse credential", parsed?.host == "vpn.example" && parsed?.user == "alice" && parsed?.password == "s3cret")
@@ -406,15 +415,15 @@ enum SelfTest {
 enum StatusCLI {
     static func run() -> Int32 {
         let (vpn, tunnel) = Engine.probe(heal: false)
-        print("VPN: \(vpn.phase.title) pid=\(vpn.pid.map(String.init) ?? "-") 进程=\(vpn.processAlive ? "在" : "不在") 路由=\(vpn.routePresent ? "有" : "无") 网关=\(vpn.gatewayReachable ? "通" : "不通") \(vpn.watch.label)")
+        print(tr("VPN: \(vpn.phase.title) pid=\(vpn.pid.map(String.init) ?? "-") 进程=\(vpn.processAlive ? "在" : "不在") 路由=\(vpn.routePresent ? "有" : "无") 网关=\(vpn.gatewayReachable ? "通" : "不通") \(vpn.watch.label)", "VPN: \(vpn.phase.title) pid=\(vpn.pid.map(String.init) ?? "-") process=\(vpn.processAlive ? "up" : "down") route=\(vpn.routePresent ? "yes" : "no") gateway=\(vpn.gatewayReachable ? "reachable" : "unreachable") \(vpn.watch.label)"))
         if vpn.credentialOK {
-            print("账号: \(vpn.user) @ \(vpn.host)")
+            print(tr("账号: \(vpn.user) @ \(vpn.host)", "Account: \(vpn.user) @ \(vpn.host)"))
         } else {
-            print("账号: 凭据不完整")
+            print(tr("账号: 凭据不完整", "Account: credentials incomplete"))
         }
-        print("隧道: \(tunnel.okCount)/\(tunnel.ports.count) autossh=\(tunnel.autosshRunning ? "在" : "不在") \(tunnel.watch.label)")
+        print(tr("隧道: \(tunnel.okCount)/\(tunnel.ports.count) autossh=\(tunnel.autosshRunning ? "在" : "不在") \(tunnel.watch.label)", "Tunnel: \(tunnel.okCount)/\(tunnel.ports.count) autossh=\(tunnel.autosshRunning ? "running" : "not running") \(tunnel.watch.label)"))
         for port in tunnel.ports {
-            let state = port.httpOK ? "通" : (port.listening ? "无响应" : "未听")
+            let state = port.httpOK ? tr("通", "OK") : (port.listening ? tr("无响应", "no response") : tr("未听", "not listening"))
             print("  \(port.name) \(port.browseLabel) → \(port.target) \(state)")
         }
         fflush(stdout)

@@ -22,15 +22,15 @@ enum Spawn {
         }
 
         var attr: posix_spawnattr_t?
-        guard posix_spawnattr_init(&attr) == 0 else { throw SpawnError.message("无法初始化进程属性") }
+        guard posix_spawnattr_init(&attr) == 0 else { throw SpawnError.message(tr("无法初始化进程属性", "Couldn't initialize process attributes")) }
         defer { posix_spawnattr_destroy(&attr) }
         let flagResult = posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID))
         if flagResult != 0 {
-            throw SpawnError.message("无法脱离会话：\(String(cString: strerror(flagResult)))")
+            throw SpawnError.message(tr("无法脱离会话：\(String(cString: strerror(flagResult)))", "Couldn't detach from the session: \(String(cString: strerror(flagResult)))"))
         }
 
         var actions: posix_spawn_file_actions_t?
-        guard posix_spawn_file_actions_init(&actions) == 0 else { throw SpawnError.message("无法初始化文件动作") }
+        guard posix_spawn_file_actions_init(&actions) == 0 else { throw SpawnError.message(tr("无法初始化文件动作", "Couldn't initialize file actions")) }
         defer { posix_spawn_file_actions_destroy(&actions) }
 
         let logfd = Darwin.open(logPath, Darwin.O_CREAT | Darwin.O_WRONLY | Darwin.O_APPEND, 0o644)
@@ -88,7 +88,7 @@ enum Service {
         let pidPath = ConfigStore.servicePIDPath
         try? String(getpid()).write(toFile: pidPath, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(atPath: pidPath) }
-        Engine.emit("后台守护开始 pid=\(getpid())")
+        Engine.emit(tr("后台守护开始 pid=\(getpid())", "Background service started pid=\(getpid())"))
 
         var lastVPN = Date.distantPast
         var lastTunnel = Date.distantPast
@@ -111,7 +111,7 @@ enum Service {
             if !vpnFlag && !tunnelFlag {
                 if idleSince == nil { idleSince = now }
                 if let idleSince, now.timeIntervalSince(idleSince) > 3 {
-                    Engine.emit("守护标记已清除，后台服务退出")
+                    Engine.emit(tr("守护标记已清除，后台服务退出", "Watchdog flags cleared, background service exiting"))
                     break
                 }
                 continue
@@ -130,7 +130,7 @@ enum Service {
                     vpnFails = 0
                 } else {
                     vpnFails += 1
-                    Engine.emitLog(config.vpnLogFile, "VPN 健康检查失败（\(vpnFails)/\(config.vpnFailThreshold)）")
+                    Engine.emitLog(config.vpnLogFile, tr("VPN 健康检查失败（\(vpnFails)/\(config.vpnFailThreshold)）", "VPN health check failed (\(vpnFails)/\(config.vpnFailThreshold))"))
                     if Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: vpnFails, threshold: config.vpnFailThreshold) {
                         Engine.restartVPNPreservingFlag(config: config)
                         vpnFails = 0
@@ -146,7 +146,7 @@ enum Service {
                     tunnelFails = 0
                 } else {
                     tunnelFails += 1
-                    Engine.emitLog(config.tunnelLogFile, "隧道健康检查失败（\(tunnelFails)/\(config.tunnelFailThreshold)）")
+                    Engine.emitLog(config.tunnelLogFile, tr("隧道健康检查失败（\(tunnelFails)/\(config.tunnelFailThreshold)）", "Tunnel health check failed (\(tunnelFails)/\(config.tunnelFailThreshold))"))
                     if Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: tunnelFails, threshold: config.tunnelFailThreshold) {
                         Engine.restartTunnelPreservingFlag(config: config)
                         tunnelFails = 0

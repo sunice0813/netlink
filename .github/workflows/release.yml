@@ -40,7 +40,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           dmg="NetLink-${TAG}-arm64.dmg"
-          notes="安装：打开 dmg，把 NetLink 拖进「应用程序」，然后在终端执行（这个版本没有签名和公证，需要解除一次隔离）：
+          notes="Install: open the dmg and drag NetLink into Applications, then run this in Terminal (this build isn't signed or notarized, so the quarantine flag has to be removed once):
+          \`xattr -dr com.apple.quarantine /Applications/NetLink.app\`
+          Then open NetLink and import your config. On first launch it installs openconnect and autossh with Homebrew and asks for your Mac password once to set up passwordless sudo.
+
+          安装：打开 dmg，把 NetLink 拖进「应用程序」，然后在终端执行（这个版本没有签名和公证，需要解除一次隔离）：
           \`xattr -dr com.apple.quarantine /Applications/NetLink.app\`
           打开 NetLink 后导入配置即可。首次打开会自动用 Homebrew 安装 openconnect、autossh，并弹一次系统密码框配置免密 sudo。"
           if gh release view "$TAG" >/dev/null 2>&1; then

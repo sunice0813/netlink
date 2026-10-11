@@ -53,9 +53,9 @@ struct Forward: Codable, Equatable, Identifiable {
     }
 
     /// 首次启动时的示例，换成自己的目标即可。
-    static let example: [Forward] = [
-        Forward(name: "示例网站", localPort: 8080, targetHost: "10.0.0.10", targetPort: 80),
-    ]
+    static var example: [Forward] {
+        [Forward(name: tr("示例网站", "Example site"), localPort: 8080, targetHost: "10.0.0.10", targetPort: 80)]
+    }
 
     private static func resolvedOpenHost(name: String, openHost: String) -> String {
         openHost.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,7 +68,7 @@ struct Forward: Codable, Equatable, Identifiable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "转发"
+        name = L10n.localizedDefault(try container.decodeIfPresent(String.self, forKey: .name) ?? tr("转发", "Forward"))
         localPort = try container.decodeIfPresent(Int.self, forKey: .localPort) ?? 0
         targetHost = try container.decodeIfPresent(String.self, forKey: .targetHost) ?? ""
         targetPort = try container.decodeIfPresent(Int.self, forKey: .targetPort) ?? 0
@@ -110,7 +110,7 @@ struct Jump: Codable, Equatable, Identifiable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "跳板"
+        name = L10n.localizedDefault(try container.decodeIfPresent(String.self, forKey: .name) ?? tr("跳板", "Jump host"))
         host = try container.decodeIfPresent(String.self, forKey: .host) ?? ""
         identityFile = try container.decodeIfPresent(String.self, forKey: .identityFile) ?? ""
         vpnID = try container.decodeIfPresent(UUID.self, forKey: .vpnID)
@@ -199,13 +199,13 @@ struct AppConfig: Codable, Equatable {
     var tunnelFailThreshold: Int = 2
     var forwards: [Forward] = Forward.example
     var jumps: [Jump] = [
-        Jump(id: Jump.primary, name: "跳板", host: "user@jump.example.com", identityFile: "~/.ssh/id_ed25519"),
+        Jump(id: Jump.primary, name: tr("跳板", "Jump host"), host: "user@jump.example.com", identityFile: "~/.ssh/id_ed25519"),
     ]
     var vpns: [VPNProfile] = [
         VPNProfile(id: VPNProfile.primary, name: "VPN", credentialFile: "~/.internalvpn"),
     ]
 
-    var machineName: String = "本机"
+    var machineName: String = tr("本机", "Local")
     /// 拓扑图节点左上角坐标。键是 machine / vpn:<uuid> / jump:<uuid> / forward:<uuid>。
     var layout: [String: LayoutPoint] = [:]
     /// 默认布局的版本。旧配置是 0，打开应用时会排一次并记成当前版本。
@@ -245,7 +245,7 @@ struct AppConfig: Codable, Equatable {
         forwards = try container.decodeIfPresent([Forward].self, forKey: .forwards) ?? defaults.forwards
         jumps = try container.decodeIfPresent([Jump].self, forKey: .jumps) ?? []
         vpns = try container.decodeIfPresent([VPNProfile].self, forKey: .vpns) ?? []
-        machineName = try container.decodeIfPresent(String.self, forKey: .machineName) ?? defaults.machineName
+        machineName = L10n.localizedDefault(try container.decodeIfPresent(String.self, forKey: .machineName) ?? defaults.machineName)
         layout = try container.decodeIfPresent([String: LayoutPoint].self, forKey: .layout) ?? [:]
         layoutVersion = try container.decodeIfPresent(Int.self, forKey: .layoutVersion) ?? 0
         openconnectPath = try container.decodeIfPresent(String.self, forKey: .openconnectPath) ?? defaults.openconnectPath
@@ -340,78 +340,78 @@ enum ConfigCheck {
     static func issues(_ config: AppConfig) -> [String] {
         var found: [String] = []
         if config.jumps.isEmpty {
-            found.append("至少保留一台跳板")
+            found.append(tr("至少保留一台跳板", "Keep at least one jump host"))
         }
         if config.vpns.isEmpty {
-            found.append("至少保留一个 VPN")
+            found.append(tr("至少保留一个 VPN", "Keep at least one VPN"))
         }
         for jump in config.jumps {
             if !jump.host.contains("@") || jump.host.hasPrefix("@") || jump.host.hasSuffix("@") {
-                found.append("\(jump.name) 要写成 user@host")
+                found.append(tr("\(jump.name) 要写成 user@host", "\(jump.name) must be written as user@host"))
             }
             if jump.host.hasPrefix("-") || jump.host.contains(where: \.isWhitespace) || jump.identityFile.hasPrefix("-") {
-                found.append("\(jump.name) 的主机或密钥不能以 - 开头，也不能含空白")
+                found.append(tr("\(jump.name) 的主机或密钥不能以 - 开头，也不能含空白", "The host or key of \(jump.name) can't start with - or contain whitespace"))
             }
             if jump.identityFile.trimmingCharacters(in: .whitespaces).isEmpty {
-                found.append("\(jump.name) 缺少私钥")
+                found.append(tr("\(jump.name) 缺少私钥", "\(jump.name) has no private key"))
             }
         }
         if config.machineName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            found.append("本机名称不能为空")
+            found.append(tr("本机名称不能为空", "The name of this Mac can't be empty"))
         }
         for vpn in config.vpns {
             if vpn.name.trimmingCharacters(in: .whitespaces).isEmpty {
-                found.append("VPN 名称不能为空")
+                found.append(tr("VPN 名称不能为空", "VPN name can't be empty"))
             }
             if vpn.isSystemVPN {
                 if vpn.serviceName.trimmingCharacters(in: .whitespaces).isEmpty {
-                    found.append("\(vpn.name) 缺少系统 VPN 服务名")
+                    found.append(tr("\(vpn.name) 缺少系统 VPN 服务名", "\(vpn.name) has no system VPN service name"))
                 }
             } else if vpn.credentialFile.trimmingCharacters(in: .whitespaces).isEmpty {
-                found.append("\(vpn.name) 缺少凭据文件")
+                found.append(tr("\(vpn.name) 缺少凭据文件", "\(vpn.name) has no credential file"))
             }
         }
         for jump in config.jumps where jump.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            found.append("跳板名称不能为空")
+            found.append(tr("跳板名称不能为空", "Jump host name can't be empty"))
         }
         for forward in config.forwards where forward.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            found.append("隧道名称不能为空")
+            found.append(tr("隧道名称不能为空", "Tunnel name can't be empty"))
         }
         if config.forwards.isEmpty {
-            found.append("至少保留一条端口转发")
+            found.append(tr("至少保留一条端口转发", "Keep at least one port forward"))
         }
         let ports = config.forwards.map(\.localPort)
         if Set(ports).count != ports.count {
-            found.append("本地端口有重复")
+            found.append(tr("本地端口有重复", "Local ports must be unique"))
         }
         for forward in config.forwards {
             if !(1...65535).contains(forward.localPort) || !(1...65535).contains(forward.targetPort) {
-                found.append("\(forward.name) 的端口不在 1–65535")
+                found.append(tr("\(forward.name) 的端口不在 1–65535", "The port of \(forward.name) must be within 1–65535"))
             }
             if forward.targetHost.trimmingCharacters(in: .whitespaces).isEmpty {
-                found.append("\(forward.name) 缺少目标主机")
+                found.append(tr("\(forward.name) 缺少目标主机", "\(forward.name) has no target host"))
             } else if forward.targetHost.hasPrefix("-") || !forward.targetHost.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }) {
-                found.append("\(forward.name) 的目标主机只能含字母、数字、点和横线")
+                found.append(tr("\(forward.name) 的目标主机只能含字母、数字、点和横线", "The target host of \(forward.name) may only contain letters, digits, dots and hyphens"))
             }
         }
         if config.routeMarker.trimmingCharacters(in: .whitespaces).isEmpty || config.pingHost.trimmingCharacters(in: .whitespaces).isEmpty {
-            found.append("VPN 路由标记和网关地址不能为空")
+            found.append(tr("VPN 路由标记和网关地址不能为空", "VPN route marker and gateway address can't be empty"))
         }
         for (label, path, suffix) in [
-            ("VPN 进程文件", config.vpnPidFile, ".pid"),
-            ("VPN 日志", config.vpnLogFile, ".log"),
-            ("隧道日志", config.tunnelLogFile, ".log"),
+            (tr("VPN 进程文件", "VPN pid file"), config.vpnPidFile, ".pid"),
+            (tr("VPN 日志", "VPN log"), config.vpnLogFile, ".log"),
+            (tr("隧道日志", "Tunnel log"), config.tunnelLogFile, ".log"),
         ] where !SudoPath.allowed(PathExpander.expand(path)) {
-            found.append("\(label) 必须在家目录下，以 \(suffix) 结尾，且不是符号链接")
+            found.append(tr("\(label) 必须在家目录下，以 \(suffix) 结尾，且不是符号链接", "\(label) must be inside your home folder, end with \(suffix), and not be a symlink"))
         }
         if config.vpnFailThreshold < 1 || config.tunnelFailThreshold < 1 {
-            found.append("连续失败次数至少为 1")
+            found.append(tr("连续失败次数至少为 1", "Failure threshold must be at least 1"))
         }
         if config.vpnWatchdogInterval < 5 || config.tunnelWatchdogInterval < 5 {
-            found.append("检查间隔至少 5 秒")
+            found.append(tr("检查间隔至少 5 秒", "Check interval must be at least 5 seconds"))
         }
         if config.reconnectTimeout < 0 {
-            found.append("重连超时不能为负")
+            found.append(tr("重连超时不能为负", "Reconnect timeout can't be negative"))
         }
         return found
     }
@@ -420,7 +420,7 @@ enum ConfigCheck {
 extension AppConfig {
     mutating func normalize() {
         if jumps.isEmpty {
-            jumps = [Jump(id: Jump.primary, name: "跳板", host: jumpHost, identityFile: identityFile)]
+            jumps = [Jump(id: Jump.primary, name: tr("跳板", "Jump host"), host: jumpHost, identityFile: identityFile)]
         }
         if vpns.isEmpty {
             vpns = [VPNProfile(id: VPNProfile.primary, name: "VPN", credentialFile: credentialFile)]
@@ -469,7 +469,7 @@ extension AppConfig {
 
     var primaryJump: Jump {
         jumps.first { $0.id == Jump.primary } ?? jumps.first
-            ?? Jump(id: Jump.primary, name: "跳板", host: jumpHost, identityFile: identityFile)
+            ?? Jump(id: Jump.primary, name: tr("跳板", "Jump host"), host: jumpHost, identityFile: identityFile)
     }
 
     func jump(for forward: Forward) -> Jump {
@@ -710,10 +710,10 @@ enum CredentialError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyAccount: return "主机和用户名不能为空"
-        case .missingPassword: return "凭据文件里还没有密码，需要填写一次"
-        case .invalidCharacter: return "主机、用户名和密码里不能有换行"
-        case .writeFailed(let reason): return "写不进凭据文件：\(reason)"
+        case .emptyAccount: return tr("主机和用户名不能为空", "Host and user name can't be empty")
+        case .missingPassword: return tr("凭据文件里还没有密码，需要填写一次", "The credential file has no password yet. Enter it once")
+        case .invalidCharacter: return tr("主机、用户名和密码里不能有换行", "Host, user name and password can't contain line breaks")
+        case .writeFailed(let reason): return tr("写不进凭据文件：\(reason)", "Can't write the credential file: \(reason)")
         }
     }
 }
@@ -759,7 +759,7 @@ enum ConfigError: LocalizedError {
     case unreadable
 
     var errorDescription: String? {
-        "配置文件读不了，已保留原文件。先修好它，或在应用里点保存覆盖（会先备份成 config.json.bak）"
+        tr("配置文件读不了，已保留原文件。先修好它，或在应用里点保存覆盖（会先备份成 config.json.bak）", "Can't read the config file; the original is kept. Fix it, or click Save in the app to overwrite it (a backup is saved as config.json.bak first)")
     }
 }
 
@@ -864,9 +864,9 @@ struct ImportPreview {
     var missingCredentials: [String]
 
     var summary: String {
-        var text = "\(config.vpns.count) 个 VPN · \(config.jumps.count) 台跳板 · \(config.forwards.count) 条转发"
+        var text = tr("\(config.vpns.count) 个 VPN · \(config.jumps.count) 台跳板 · \(config.forwards.count) 条转发", "\(config.vpns.count) VPN · \(config.jumps.count) jump hosts · \(config.forwards.count) forwards")
         if !secrets.isEmpty {
-            text += " · 含 \(secrets.credentials.count) 个账号、\(secrets.keys.count) 把私钥"
+            text += tr(" · 含 \(secrets.credentials.count) 个账号、\(secrets.keys.count) 把私钥", " · includes \(secrets.credentials.count) accounts, \(secrets.keys.count) private keys")
         }
         return text
     }
@@ -878,8 +878,8 @@ enum ConfigTransferError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notNetLinkConfig: return "这不是 NetLink 的配置文件"
-        case .unreadable(let reason): return "读不了这个文件：\(reason)"
+        case .notNetLinkConfig: return tr("这不是 NetLink 的配置文件", "This isn't a NetLink config file")
+        case .unreadable(let reason): return tr("读不了这个文件：\(reason)", "Can't read this file: \(reason)")
         }
     }
 }
@@ -975,16 +975,16 @@ enum ConfigTransfer {
             vpns[index].removeValue(forKey: "credential")
             let name = vpns[index]["name"] as? String ?? "VPN"
             guard let idText = vpns[index]["id"] as? String, let id = UUID(uuidString: idText) else {
-                problems.append("\(name) 的账号没有有效的 id")
+                problems.append(tr("\(name) 的账号没有有效的 id", "The account of \(name) has no valid id"))
                 continue
             }
             let host = (embedded["host"] as? String) ?? ""
             let user = (embedded["user"] as? String) ?? ""
             let password = (embedded["password"] as? String) ?? ""
             if host.isEmpty || user.isEmpty || password.isEmpty {
-                problems.append("\(name) 的账号不完整")
+                problems.append(tr("\(name) 的账号不完整", "The account of \(name) is incomplete"))
             } else if [host, user, password].contains(where: { $0.contains(where: \.isNewline) }) {
-                problems.append("\(name) 的账号里有换行")
+                problems.append(tr("\(name) 的账号里有换行", "The account of \(name) contains a line break"))
             } else {
                 secrets.credentials[id] = VPNCredential(host: host, user: user, password: password)
             }
@@ -995,13 +995,13 @@ enum ConfigTransfer {
         for index in jumps.indices {
             guard let key = jumps[index]["identity"] as? String else { continue }
             jumps[index].removeValue(forKey: "identity")
-            let name = jumps[index]["name"] as? String ?? "跳板"
+            let name = jumps[index]["name"] as? String ?? tr("跳板", "Jump host")
             guard let idText = jumps[index]["id"] as? String, let id = UUID(uuidString: idText) else {
-                problems.append("\(name) 的私钥没有有效的 id")
+                problems.append(tr("\(name) 的私钥没有有效的 id", "The private key of \(name) has no valid id"))
                 continue
             }
             if !key.contains("PRIVATE KEY") || key.utf8.count > maxKeyBytes {
-                problems.append("\(name) 的私钥格式不对")
+                problems.append(tr("\(name) 的私钥格式不对", "The private key of \(name) is malformed"))
             } else {
                 secrets.keys[id] = key
             }

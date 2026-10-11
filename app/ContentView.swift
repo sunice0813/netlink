@@ -166,7 +166,7 @@ struct ContentView: View {
                     .foregroundStyle(summaryTint)
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("内网连接")
+                    Text(tr("内网连接", "NetLink"))
                         .font(.system(size: 18, weight: .semibold))
                     Text(summary)
                         .font(.system(size: 12))
@@ -175,16 +175,16 @@ struct ContentView: View {
             }
             Spacer(minLength: 12)
             HStack(spacing: 8) {
-                ActionButton(title: "刷新", symbol: "arrow.clockwise", kind: .secondary, spinning: model.refreshingVisible) {
+                ActionButton(title: tr("刷新", "Refresh"), symbol: "arrow.clockwise", kind: .secondary, spinning: model.refreshingVisible) {
                     Task { await model.refresh(manual: true) }
                 }
-                ActionButton(title: "日志", symbol: "doc.text", kind: .secondary) {
+                ActionButton(title: tr("日志", "Logs"), symbol: "doc.text", kind: .secondary) {
                     showLogs = true
                 }
-                ActionButton(title: "导入导出", symbol: "square.and.arrow.up.on.square", kind: .secondary) {
+                ActionButton(title: tr("导入导出", "Import / Export"), symbol: "square.and.arrow.up.on.square", kind: .secondary) {
                     showTransfer = true
                 }
-                ActionButton(title: "设置", symbol: "gearshape", kind: .secondary) {
+                ActionButton(title: tr("设置", "Settings"), symbol: "gearshape", kind: .secondary) {
                     showSettings = true
                 }
             }
@@ -206,7 +206,7 @@ struct ContentView: View {
     }
 
     private var footer: some View {
-        Text("退出应用会断开 VPN 和隧道，并停掉自动重连。关掉窗口不会退出。")
+        Text(tr("退出应用会断开 VPN 和隧道，并停掉自动重连。关掉窗口不会退出。", "Quitting the app disconnects the VPN and tunnels and stops auto-reconnect. Closing the window doesn't quit."))
             .font(.system(size: 11))
             .foregroundStyle(theme.muted)
             .padding(.horizontal, 28)
@@ -216,17 +216,17 @@ struct ContentView: View {
     }
 
     private var summary: String {
-        let when = model.checkedAt.map { time($0) } ?? "尚未检查"
+        let when = model.checkedAt.map { time($0) } ?? tr("尚未检查", "not checked yet")
         if model.vpn.phase == .up && model.tunnel.phase == .up {
-            return "VPN 和隧道都正常 · \(when)"
+            return tr("VPN 和隧道都正常 · \(when)", "VPN and tunnels are healthy · \(when)")
         }
-        return "VPN \(model.vpn.phase.title) · 隧道 \(tunnelHeadline) · \(when)"
+        return tr("VPN \(model.vpn.phase.title) · 隧道 \(tunnelHeadline) · \(when)", "VPN \(model.vpn.phase.title) · Tunnel \(tunnelHeadline) · \(when)")
     }
 
     private var tunnelHeadline: String {
-        if model.tunnel.phase == .checking { return "检查中" }
-        if model.tunnel.ports.isEmpty { return "未连接" }
-        return "\(model.tunnel.okCount)/\(model.tunnel.ports.count) 通"
+        if model.tunnel.phase == .checking { return tr("检查中", "Checking") }
+        if model.tunnel.ports.isEmpty { return tr("未连接", "Disconnected") }
+        return tr("\(model.tunnel.okCount)/\(model.tunnel.ports.count) 通", "\(model.tunnel.okCount)/\(model.tunnel.ports.count) up")
     }
 
     private var noticeOverlay: some View {
@@ -430,7 +430,7 @@ struct PathNode: View {
                         NSCursor.arrow.set()
                     }
                 }
-                .help(help ?? "打开 \(title)")
+                .help(help ?? tr("打开 \(title)", "Open \(title)"))
                 .animation(.easeOut(duration: 0.12), value: hovered)
         } else {
             content
@@ -481,7 +481,7 @@ struct TunnelActionList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if port.httpOK || port.listening {
-                row("打开", symbol: "arrow.up.right", tint: theme.accent, spinning: false) {
+                row(tr("打开", "Open"), symbol: "arrow.up.right", tint: theme.accent, spinning: false) {
                     dismiss()
                     if let url = URL(string: port.browseURL) {
                         NSWorkspace.shared.open(url)
@@ -489,7 +489,7 @@ struct TunnelActionList: View {
                 }
             }
             row(
-                "连接",
+                tr("连接", "Connect"),
                 symbol: "link",
                 tint: theme.accent,
                 spinning: model.job == .forwardConnect(port.localPort)
@@ -498,7 +498,7 @@ struct TunnelActionList: View {
                 model.connectForward(port.localPort)
             }
             row(
-                "断开",
+                tr("断开", "Disconnect"),
                 symbol: "minus.circle",
                 tint: theme.bad,
                 spinning: model.job == .forwardDisconnect(port.localPort)
@@ -506,12 +506,12 @@ struct TunnelActionList: View {
                 dismiss()
                 model.disconnectForward(port.localPort)
             }
-            row("改名", symbol: "pencil", tint: theme.text, spinning: false) {
+            row(tr("改名", "Rename"), symbol: "pencil", tint: theme.text, spinning: false) {
                 dismiss()
                 onRename()
             }
             if model.config.forwards.count > 1 {
-                row("删除", symbol: "trash", tint: theme.bad, spinning: model.job == .forwardDisconnect(port.localPort)) {
+                row(tr("删除", "Delete"), symbol: "trash", tint: theme.bad, spinning: model.job == .forwardDisconnect(port.localPort)) {
                     dismiss()
                     model.removeForward(port.localPort)
                 }
@@ -646,8 +646,8 @@ struct ActionButton: View {
     }
 
     private var shown: String {
-        guard spinning, title.count <= 4 else { return title }
-        return "\(title)中"
+        guard spinning, title.count <= 4 || !L10n.isChinese else { return title }
+        return tr("\(title)中", "\(title)…")
     }
 
     private var foreground: Color {
@@ -720,13 +720,13 @@ struct LogsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("日志")
+                Text(tr("日志", "Logs"))
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
-                Text("密码不会出现在这里")
+                Text(tr("密码不会出现在这里", "Passwords never appear here"))
                     .font(.system(size: 11))
                     .foregroundStyle(theme.muted)
-                Button("关闭") { dismiss() }
+                Button(tr("关闭", "Close")) { dismiss() }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(theme.accent)
@@ -736,8 +736,8 @@ struct LogsView: View {
             Rectangle().fill(theme.line).frame(height: 1)
             HStack(spacing: 0) {
                 logTab("VPN", tag: 0)
-                logTab("隧道", tag: 1)
-                logTab("安装", tag: 2)
+                logTab(tr("隧道", "Tunnel"), tag: 1)
+                logTab(tr("安装", "Install"), tag: 2)
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -768,7 +768,7 @@ struct LogsView: View {
     private var logText: String {
         let raw = [model.vpnLog, model.tunnelLog, model.setupLog][logSource]
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "还没有日志" : trimmed
+        return trimmed.isEmpty ? tr("还没有日志", "No logs yet") : trimmed
     }
 
     private func logTab(_ title: String, tag: Int) -> some View {
@@ -803,10 +803,10 @@ struct ConfigTransferView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("配置导入导出")
+                Text(tr("配置导入导出", "Import / Export Config"))
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
-                Button("关闭") { dismiss() }
+                Button(tr("关闭", "Close")) { dismiss() }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(theme.accent)
@@ -817,29 +817,29 @@ struct ConfigTransferView: View {
 
             VStack(alignment: .leading, spacing: 18) {
                 section(
-                    title: "导出",
-                    detail: "把当前的 VPN、跳板、转发和图上的位置存成一个 JSON 文件。勾选下面的选项后，VPN 账号和 SSH 私钥的内容也一起带上，换一台机器导入就能直接用。"
+                    title: tr("导出", "Export"),
+                    detail: tr("把当前的 VPN、跳板、转发和图上的位置存成一个 JSON 文件。勾选下面的选项后，VPN 账号和 SSH 私钥的内容也一起带上，换一台机器导入就能直接用。", "Saves the current VPNs, jump hosts, forwards and their positions on the map as a JSON file. With the option below checked, the VPN accounts and SSH private keys are included too, so importing it on another Mac just works.")
                 ) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Toggle("包含 VPN 密码和 SSH 私钥", isOn: $includeSecrets)
+                        Toggle(tr("包含 VPN 密码和 SSH 私钥", "Include VPN passwords and SSH private keys"), isOn: $includeSecrets)
                             .toggleStyle(.checkbox)
                         if includeSecrets {
-                            Text("导出的文件里是明文密码和私钥，请当成密码一样保管，只交给自己信任的人。")
+                            Text(tr("导出的文件里是明文密码和私钥，请当成密码一样保管，只交给自己信任的人。", "The exported file contains plain-text passwords and private keys. Keep it as safe as a password and only give it to people you trust."))
                                 .font(.system(size: 12))
                                 .foregroundStyle(theme.warn)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        ActionButton(title: "导出到文件…", symbol: "square.and.arrow.up", kind: .secondary) {
+                        ActionButton(title: tr("导出到文件…", "Export to File…"), symbol: "square.and.arrow.up", kind: .secondary) {
                             exportConfig()
                         }
                     }
                 }
                 Rectangle().fill(theme.line).frame(height: 1)
                 section(
-                    title: "导入",
-                    detail: "选择之前导出的文件，确认内容后替换当前配置。替换前会把现在的配置备份为 config.json.bak。文件里带的账号和私钥会存进应用自己的数据目录。"
+                    title: tr("导入", "Import"),
+                    detail: tr("选择之前导出的文件，确认内容后替换当前配置。替换前会把现在的配置备份为 config.json.bak。文件里带的账号和私钥会存进应用自己的数据目录。", "Choose a previously exported file, review it, then replace the current config. The current config is backed up as config.json.bak first. Accounts and keys in the file are stored in the app's own data folder.")
                 ) {
-                    ActionButton(title: "选择文件…", symbol: "square.and.arrow.down", kind: .secondary) {
+                    ActionButton(title: tr("选择文件…", "Choose File…"), symbol: "square.and.arrow.down", kind: .secondary) {
                         chooseFile()
                     }
                     if let preview {
@@ -882,14 +882,14 @@ struct ConfigTransferView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(theme.muted)
             if !preview.missingCredentials.isEmpty {
-                Text("\(preview.missingCredentials.joined(separator: "、")) 的账号文件在这台机器上不存在，文件里也没带账号，导入后要在对应节点里重新填。")
+                Text(tr("\(preview.missingCredentials.joined(separator: "、")) 的账号文件在这台机器上不存在，文件里也没带账号，导入后要在对应节点里重新填。", "The account files for \(preview.missingCredentials.joined(separator: ", ")) don't exist on this Mac and aren't in the file. Enter them again on those nodes after importing."))
                     .font(.system(size: 12))
                     .foregroundStyle(theme.warn)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !preview.issues.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("不能导入：")
+                    Text(tr("不能导入：", "Can't import:"))
                         .font(.system(size: 12, weight: .semibold))
                     ForEach(preview.issues, id: \.self) { issue in
                         Text("· \(issue)").font(.system(size: 12))
@@ -899,11 +899,11 @@ struct ConfigTransferView: View {
             }
             HStack(spacing: 8) {
                 if preview.issues.isEmpty {
-                    ActionButton(title: "导入并替换当前配置", symbol: "checkmark", kind: .primary) {
+                    ActionButton(title: tr("导入并替换当前配置", "Import and Replace Current Config"), symbol: "checkmark", kind: .primary) {
                         apply(preview)
                     }
                 }
-                ActionButton(title: "取消", kind: .secondary) {
+                ActionButton(title: tr("取消", "Cancel"), kind: .secondary) {
                     self.preview = nil
                 }
             }
@@ -915,7 +915,7 @@ struct ConfigTransferView: View {
 
     private func exportConfig() {
         let panel = NSSavePanel()
-        panel.title = "导出配置"
+        panel.title = tr("导出配置", "Export Config")
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "netlink-config.json"
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -924,18 +924,18 @@ struct ConfigTransferView: View {
             try ConfigTransfer.write(current, to: url, includeSecrets: includeSecrets)
             show(
                 includeSecrets
-                    ? "已导出到 \(url.path)（含密码和私钥，请妥善保管）"
-                    : "已导出到 \(url.path)",
+                    ? tr("已导出到 \(url.path)（含密码和私钥，请妥善保管）", "Exported to \(url.path) (includes passwords and private keys, keep it safe)")
+                    : tr("已导出到 \(url.path)", "Exported to \(url.path)"),
                 failed: false
             )
         } catch {
-            show("导出失败：\(error.localizedDescription)", failed: true)
+            show(tr("导出失败：\(error.localizedDescription)", "Export failed: \(error.localizedDescription)"), failed: true)
         }
     }
 
     private func chooseFile() {
         let panel = NSOpenPanel()
-        panel.title = "选择要导入的配置"
+        panel.title = tr("选择要导入的配置", "Choose a Config to Import")
         panel.allowedContentTypes = [.json]
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
@@ -957,10 +957,10 @@ struct ConfigTransferView: View {
             let ready = try ConfigTransfer.materialize(preview)
             try model.save(config: ready)
             self.preview = nil
-            show("已导入。原配置备份为 config.json.bak，转发和 VPN 的改动重新连接后生效。", failed: false)
+            show(tr("已导入。原配置备份为 config.json.bak，转发和 VPN 的改动重新连接后生效。", "Imported. The previous config was backed up as config.json.bak. Reconnect for forward and VPN changes to take effect."), failed: false)
             Task { await model.refresh() }
         } catch {
-            show("导入失败：\(error.localizedDescription)", failed: true)
+            show(tr("导入失败：\(error.localizedDescription)", "Import failed: \(error.localizedDescription)"), failed: true)
         }
     }
 
@@ -982,7 +982,7 @@ struct MenuPanel: View {
                 Image(systemName: model.menuSymbol)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(overallTint)
-                Text("内网连接")
+                Text(tr("内网连接", "NetLink"))
                     .font(.system(size: 13, weight: .semibold))
                 Spacer(minLength: 8)
                 Button {
@@ -997,8 +997,8 @@ struct MenuPanel: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(theme.muted)
-                .help("刷新")
-                Button("打开") { showMain() }
+                .help(tr("刷新", "Refresh"))
+                Button(tr("打开", "Open")) { showMain() }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(theme.accent)
@@ -1010,7 +1010,7 @@ struct MenuPanel: View {
                 status: menuStatus(model.vpn.phase),
                 symbol: model.vpn.phase == .up ? "lock.shield.fill" : "lock.shield",
                 tint: phaseTint(model.vpn.phase),
-                action: model.vpn.phase == .down ? "连接" : "断开",
+                action: model.vpn.phase == .down ? tr("连接", "Connect") : tr("断开", "Disconnect"),
                 danger: model.vpn.phase != .down,
                 spinning: model.job == .vpnConnect || model.job == .vpnDisconnect
             ) {
@@ -1027,7 +1027,7 @@ struct MenuPanel: View {
                     status: on ? .up : .down,
                     iconFile: Engine.systemVPNAppPath(kind: profile.kind),
                     tint: on ? theme.ok : theme.muted,
-                    action: on ? "断开" : "连接",
+                    action: on ? tr("断开", "Disconnect") : tr("连接", "Connect"),
                     danger: on,
                     spinning: model.job == .vpnConnect || model.job == .vpnDisconnect
                 ) {
@@ -1039,14 +1039,14 @@ struct MenuPanel: View {
                 }
             }
             if !model.tunnel.ports.isEmpty {
-                menuSection("隧道")
+                menuSection(tr("隧道", "Tunnels"))
                 ForEach(model.tunnel.ports) { port in
                     menuRow(
                         title: port.name,
                         status: port.httpOK ? .up : (port.listening ? .warn : .down),
                         pageURL: port.browseURL,
                         tint: port.httpOK ? theme.ok : (port.listening ? theme.warn : theme.bad),
-                        action: port.httpOK || port.listening ? "断开" : "连接",
+                        action: port.httpOK || port.listening ? tr("断开", "Disconnect") : tr("连接", "Connect"),
                         danger: port.httpOK || port.listening,
                         spinning: model.job == .forwardConnect(port.localPort) || model.job == .forwardDisconnect(port.localPort)
                     ) {
@@ -1063,7 +1063,7 @@ struct MenuPanel: View {
                 .foregroundStyle(theme.muted)
                 .padding(.top, 8)
             Rectangle().fill(theme.line).frame(height: 1).padding(.vertical, 8)
-            Button("退出并断开") { NSApp.terminate(nil) }
+            Button(tr("退出并断开", "Quit and Disconnect")) { NSApp.terminate(nil) }
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(theme.muted)
@@ -1101,11 +1101,11 @@ struct MenuPanel: View {
 
     private var watchSummary: String {
         switch (model.vpn.watch, model.tunnel.watch) {
-        case (.off, .off): return "自动重连关着"
-        case (.app, .app): return "自动重连开着"
-        case (.off, _): return "VPN 自动重连关着"
-        case (_, .off): return "隧道自动重连关着"
-        default: return "自动重连：\(model.vpn.watch.label)"
+        case (.off, .off): return tr("自动重连关着", "Auto-reconnect is off")
+        case (.app, .app): return tr("自动重连开着", "Auto-reconnect is on")
+        case (.off, _): return tr("VPN 自动重连关着", "VPN auto-reconnect is off")
+        case (_, .off): return tr("隧道自动重连关着", "Tunnel auto-reconnect is off")
+        default: return tr("自动重连：\(model.vpn.watch.label)", "Auto-reconnect: \(model.vpn.watch.label)")
         }
     }
 
@@ -1123,10 +1123,10 @@ struct MenuPanel: View {
 
         var help: String {
             switch self {
-            case .up: return "已连接"
-            case .warn: return "无响应"
-            case .down: return "未连接"
-            case .checking: return "检查中"
+            case .up: return tr("已连接", "Connected")
+            case .warn: return tr("无响应", "No response")
+            case .down: return tr("未连接", "Disconnected")
+            case .checking: return tr("检查中", "Checking")
             }
         }
 
@@ -1228,7 +1228,8 @@ struct MenuPanel: View {
                     Text(action)
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .frame(width: 52, height: 24)
+                .padding(.horizontal, 8)
+                .frame(minWidth: 52, minHeight: 24)
                 .foregroundStyle(danger ? theme.bad : theme.accent)
                 .background((danger ? theme.bad : theme.accent).opacity(0.08))
                 .overlay(
@@ -1257,23 +1258,23 @@ private struct FortiAccountSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("FortiClient 账号")
+            Text(tr("FortiClient 账号", "FortiClient Account"))
                 .font(.system(size: 16, weight: .semibold))
             VStack(alignment: .leading, spacing: 6) {
-                Text("用户")
+                Text(tr("用户", "User"))
                     .font(.system(size: 12))
                     .foregroundStyle(theme.muted)
-                TextField("用户名", text: $user)
+                TextField(tr("用户名", "User name"), text: $user)
                     .textFieldStyle(.roundedBorder)
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text("密码")
+                Text(tr("密码", "Password"))
                     .font(.system(size: 12))
                     .foregroundStyle(theme.muted)
-                SecureField(FortiClient.hasLogin() ? "留空则不改" : "必填", text: $password)
+                SecureField(FortiClient.hasLogin() ? tr("留空则不改", "Leave empty to keep") : tr("必填", "Required"), text: $password)
                     .textFieldStyle(.roundedBorder)
             }
-            Text("密码只写在本机的凭据文件里，不进配置，也不进日志。FortiClient 自己没有记住密码。")
+            Text(tr("密码只写在本机的凭据文件里，不进配置，也不进日志。FortiClient 自己没有记住密码。", "The password is only written to the credential file on this Mac, never to the config or logs. FortiClient itself doesn't remember it."))
                 .font(.system(size: 12))
                 .foregroundStyle(theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1283,10 +1284,10 @@ private struct FortiAccountSheet: View {
                     .foregroundStyle(theme.bad)
             }
             HStack {
-                Button("取消") { dismiss() }
+                Button(tr("取消", "Cancel")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(model.fortiConnectAfterSave ? "保存并连接" : "保存") { save() }
+                Button(model.fortiConnectAfterSave ? tr("保存并连接", "Save and Connect") : tr("保存", "Save")) { save() }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -1369,51 +1370,51 @@ private struct PathConfigSheet: View {
                 .font(.system(size: 16, weight: .semibold))
             switch kind {
             case .vpn, .addVPN:
-                field("名称", text: $name, prompt: "VPN")
-                field("主机", text: $host, prompt: "vpn.example.com")
-                field("用户", text: $user, prompt: "用户名")
+                field(tr("名称", "Name"), text: $name, prompt: "VPN")
+                field(tr("主机", "Host"), text: $host, prompt: "vpn.example.com")
+                field(tr("用户", "User"), text: $user, prompt: tr("用户名", "User name"))
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("密码")
+                    Text(tr("密码", "Password"))
                         .font(.system(size: 12))
                         .foregroundStyle(theme.muted)
-                    SecureField(isAddingVPN ? "必填" : "留空则不改", text: $password)
+                    SecureField(isAddingVPN ? tr("必填", "Required") : tr("留空则不改", "Leave empty to keep"), text: $password)
                         .textFieldStyle(.roundedBorder)
                 }
-                Text(isAddingVPN ? "密码只写在本机的凭据文件里，不会进配置。" : "正在使用的连接不会马上切换。同一时间只连一个 VPN。")
+                Text(isAddingVPN ? tr("密码只写在本机的凭据文件里，不会进配置。", "The password is only written to the credential file on this Mac, never to the config.") : tr("正在使用的连接不会马上切换。同一时间只连一个 VPN。", "The connection in use won't switch right away. Only one VPN is connected at a time."))
                     .font(.system(size: 12))
                     .foregroundStyle(theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             case .jump, .addJump:
-                field("名称", text: $name, prompt: "跳板")
-                field("跳板", text: $jump, prompt: "user@host")
-                field("私钥", text: $identity, prompt: "~/.ssh/id_ed25519")
+                field(tr("名称", "Name"), text: $name, prompt: tr("跳板", "Jump host"))
+                field(tr("跳板", "Jump host"), text: $jump, prompt: "user@host")
+                field(tr("私钥", "Private key"), text: $identity, prompt: "~/.ssh/id_ed25519")
                 if !identity.trimmingCharacters(in: .whitespaces).isEmpty, !keyExists {
-                    Text("找不到这个私钥")
+                    Text(tr("找不到这个私钥", "Can't find this private key"))
                         .font(.system(size: 12))
                         .foregroundStyle(theme.warn)
                 }
-                Text("写成 user@host。改完要重新连接，正在用的隧道不会马上切换。")
+                Text(tr("写成 user@host。改完要重新连接，正在用的隧道不会马上切换。", "Write it as user@host. Reconnect after changing it; tunnels in use won't switch right away."))
                     .font(.system(size: 12))
                     .foregroundStyle(theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             case .addTunnel:
-                field("名称", text: $name, prompt: "GitLab")
-                field("本地端口", text: Binding(
+                field(tr("名称", "Name"), text: $name, prompt: "GitLab")
+                field(tr("本地端口", "Local port"), text: Binding(
                     get: { String(localPort) },
                     set: { localPort = Int($0.filter(\.isNumber)) ?? localPort }
                 ), prompt: "9000")
-                field("目标主机", text: $targetHost, prompt: "10.0.0.10")
-                field("目标端口", text: Binding(
+                field(tr("目标主机", "Target host"), text: $targetHost, prompt: "10.0.0.10")
+                field(tr("目标端口", "Target port"), text: Binding(
                     get: { String(targetPort) },
                     set: { targetPort = Int($0.filter(\.isNumber)) ?? targetPort }
                 ), prompt: "80")
-                field("打开时的域名，可空", text: $openHost, prompt: "留空则用 127.0.0.1")
-                Text("先出现在图上，点连接才会建隧道。")
+                field(tr("打开时的域名，可空", "Host name to open (optional)"), text: $openHost, prompt: tr("留空则用 127.0.0.1", "Empty means 127.0.0.1"))
+                Text(tr("先出现在图上，点连接才会建隧道。", "It appears on the map first; the tunnel is only created when you click Connect."))
                     .font(.system(size: 12))
                     .foregroundStyle(theme.muted)
             case .renameMachine, .renameVPN, .renameJump, .renameForward:
-                field("名称", text: $name, prompt: "显示名称")
-                Text("只改图上和菜单里的名字，不会动正在用的连接。")
+                field(tr("名称", "Name"), text: $name, prompt: tr("显示名称", "Display name"))
+                Text(tr("只改图上和菜单里的名字，不会动正在用的连接。", "Only changes the name on the map and in the menu; connections in use aren't touched."))
                     .font(.system(size: 12))
                     .foregroundStyle(theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1425,10 +1426,10 @@ private struct PathConfigSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                Button("取消") { dismiss() }
+                Button(tr("取消", "Cancel")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("保存") { save() }
+                Button(tr("保存", "Save")) { save() }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -1446,12 +1447,12 @@ private struct PathConfigSheet: View {
 
     private var title: String {
         switch kind {
-        case .vpn: return "修改 VPN"
-        case .jump: return "修改跳板"
-        case .addVPN: return "添加 VPN"
-        case .addJump: return "添加跳板"
-        case .addTunnel: return "添加隧道"
-        case .renameMachine, .renameVPN, .renameJump, .renameForward: return "改名"
+        case .vpn: return tr("修改 VPN", "Edit VPN")
+        case .jump: return tr("修改跳板", "Edit Jump Host")
+        case .addVPN: return tr("添加 VPN", "Add VPN")
+        case .addJump: return tr("添加跳板", "Add Jump Host")
+        case .addTunnel: return tr("添加隧道", "Add Tunnel")
+        case .renameMachine, .renameVPN, .renameJump, .renameForward: return tr("改名", "Rename")
         }
     }
 
@@ -1482,16 +1483,16 @@ private struct PathConfigSheet: View {
             }
         case .jump(let id):
             let item = model.config.jumps.first { $0.id == id }
-            name = item?.name ?? "跳板"
+            name = item?.name ?? tr("跳板", "Jump host")
             jump = item?.host ?? ""
             identity = item?.identityFile ?? ""
         case .addVPN:
             name = "VPN"
         case .addJump:
-            name = "跳板"
+            name = tr("跳板", "Jump host")
             identity = "~/.ssh/"
         case .addTunnel:
-            name = "新隧道"
+            name = tr("新隧道", "New tunnel")
             localPort = suggestedPort()
             targetPort = 80
         case .renameMachine:
@@ -1499,9 +1500,9 @@ private struct PathConfigSheet: View {
         case .renameVPN(let id):
             name = model.config.vpns.first { $0.id == id }?.name ?? "VPN"
         case .renameJump(let id):
-            name = model.config.jumps.first { $0.id == id }?.name ?? "跳板"
+            name = model.config.jumps.first { $0.id == id }?.name ?? tr("跳板", "Jump host")
         case .renameForward(let id):
-            name = model.config.forwards.first { $0.id == id }?.name ?? "隧道"
+            name = model.config.forwards.first { $0.id == id }?.name ?? tr("隧道", "Tunnel")
         }
     }
 
@@ -1601,56 +1602,72 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             Form {
-                Section("开机启动") {
-                    Toggle("登录后自动打开本应用", isOn: Binding(
+                Section(tr("开机启动", "Launch at Login")) {
+                    Toggle(tr("登录后自动打开本应用", "Open this app after login"), isOn: Binding(
                         get: { launchAtLogin },
                         set: { setLaunchAtLogin($0) }
                     ))
                     if loginStatus == .requiresApproval {
                         HStack {
-                            Text("需要在系统设置的「登录项」里允许")
+                            Text(tr("需要在系统设置的「登录项」里允许", "Allow it under Login Items in System Settings"))
                                 .foregroundStyle(.orange)
                             Spacer()
-                            Button("打开系统设置") { SMAppService.openSystemSettingsLoginItems() }
+                            Button(tr("打开系统设置", "Open System Settings")) { SMAppService.openSystemSettingsLoginItems() }
                         }
                     }
                     if !model.loginMessage.isEmpty {
                         Text(model.loginMessage).foregroundStyle(.red)
                     }
-                    Text("只是登录后把应用打开，不会自动连接。自动重连看各卡片上的开关。应用换了位置需要重新打开这个开关，建议放在「应用程序」里。")
+                    Text(tr("只是登录后把应用打开，不会自动连接。自动重连看各卡片上的开关。应用换了位置需要重新打开这个开关，建议放在「应用程序」里。", "This only opens the app after login; it doesn't connect. Auto-reconnect is controlled by the switches on each card. If you move the app, turn this switch on again; keeping it in Applications is recommended."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Section("主题") {
-                    Picker("主题", selection: $appearanceRaw) {
-                        Text("深色").tag(AppearanceChoice.dark.rawValue)
-                        Text("浅色").tag(AppearanceChoice.light.rawValue)
-                        Text("跟随系统").tag(AppearanceChoice.system.rawValue)
+                Section(tr("主题", "Appearance")) {
+                    Picker(tr("主题", "Appearance"), selection: $appearanceRaw) {
+                        Text(tr("深色", "Dark")).tag(AppearanceChoice.dark.rawValue)
+                        Text(tr("浅色", "Light")).tag(AppearanceChoice.light.rawValue)
+                        Text(tr("跟随系统", "System")).tag(AppearanceChoice.system.rawValue)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
-                Section("VPN 账号") {
-                    TextField("主机", text: $host)
-                    TextField("用户", text: $user)
-                    SecureField("新密码，留空则不改", text: $password)
-                    Text("写在 \(draft.credentialFile)。保存后文件权限会收成仅本人可读。应用不另存一份密码。")
+                Section(tr("语言", "Language")) {
+                    Picker(tr("语言", "Language"), selection: Binding(
+                        get: { LanguageStore.shared.choice },
+                        set: {
+                            LanguageStore.shared.choice = $0
+                            // 默认名（跳板、本机……）在读配置时按语言换，重读一次让图上立刻变。
+                            Task { await model.refresh() }
+                        }
+                    )) {
+                        Text(verbatim: "中文").tag(AppLanguage.zh)
+                        Text(verbatim: "English").tag(AppLanguage.en)
+                        Text(tr("跟随系统", "System")).tag(AppLanguage.system)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                Section(tr("VPN 账号", "VPN Account")) {
+                    TextField(tr("主机", "Host"), text: $host)
+                    TextField(tr("用户", "User"), text: $user)
+                    SecureField(tr("新密码，留空则不改", "New password (leave empty to keep)"), text: $password)
+                    Text(tr("写在 \(draft.credentialFile)。保存后文件权限会收成仅本人可读。应用不另存一份密码。", "Stored in \(draft.credentialFile). After saving, the file is made readable only by you. The app keeps no other copy of the password."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    Button("更新账号") { updateCredential() }
+                    Button(tr("更新账号", "Update Account")) { updateCredential() }
                 }
-                Section("跳板和密钥") {
-                    TextField("跳板 user@host", text: $draft.jumpHost)
-                    TextField("私钥路径", text: $draft.identityFile)
-                    TextField("凭据文件", text: $draft.credentialFile)
+                Section(tr("跳板和密钥", "Jump Host and Key")) {
+                    TextField(tr("跳板 user@host", "Jump host user@host"), text: $draft.jumpHost)
+                    TextField(tr("私钥路径", "Private key path"), text: $draft.identityFile)
+                    TextField(tr("凭据文件", "Credential file"), text: $draft.credentialFile)
                 }
-                Section("转发") {
+                Section(tr("转发", "Forwards")) {
                     ForEach($draft.forwards) { $forward in
                         HStack {
-                            TextField("名称", text: $forward.name).frame(width: 110)
-                            TextField("本地", value: $forward.localPort, format: Self.plainNumber).frame(width: 70)
-                            TextField("目标主机", text: $forward.targetHost)
-                            TextField("目标端口", value: $forward.targetPort, format: Self.plainNumber).frame(width: 80)
+                            TextField(tr("名称", "Name"), text: $forward.name).frame(width: 110)
+                            TextField(tr("本地", "Local"), value: $forward.localPort, format: Self.plainNumber).frame(width: 70)
+                            TextField(tr("目标主机", "Target host"), text: $forward.targetHost)
+                            TextField(tr("目标端口", "Target port"), value: $forward.targetPort, format: Self.plainNumber).frame(width: 80)
                             Button {
                                 draft.forwards.removeAll { $0.id == forward.id }
                             } label: {
@@ -1659,19 +1676,19 @@ struct SettingsView: View {
                             .disabled(draft.forwards.count <= 1)
                         }
                     }
-                    Button("加一条") {
-                        draft.forwards.append(Forward(name: "新转发", localPort: 9000, targetHost: "10.0.0.10", targetPort: 80))
+                    Button(tr("加一条", "Add")) {
+                        draft.forwards.append(Forward(name: tr("新转发", "New forward"), localPort: 9000, targetHost: "10.0.0.10", targetPort: 80))
                     }
-                    Text("改完要重启隧道才生效。健康检查也按这里的端口来。")
+                    Text(tr("改完要重启隧道才生效。健康检查也按这里的端口来。", "Restart the tunnel for changes to take effect. Health checks use these ports too."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Section("VPN 健康检查") {
-                    TextField("路由里要出现的网段", text: $draft.routeMarker)
-                    TextField("要 ping 的网关", text: $draft.pingHost)
-                    TextField("检查间隔（秒）", value: $draft.vpnWatchdogInterval, format: .number)
-                    TextField("连续失败几次才重启", value: $draft.vpnFailThreshold, format: .number)
-                    TextField("隧道检查间隔（秒）", value: $draft.tunnelWatchdogInterval, format: .number)
+                Section(tr("VPN 健康检查", "VPN Health Check")) {
+                    TextField(tr("路由里要出现的网段", "Network expected in the routes"), text: $draft.routeMarker)
+                    TextField(tr("要 ping 的网关", "Gateway to ping"), text: $draft.pingHost)
+                    TextField(tr("检查间隔（秒）", "Check interval (s)"), value: $draft.vpnWatchdogInterval, format: .number)
+                    TextField(tr("连续失败几次才重启", "Failures before restart"), value: $draft.vpnFailThreshold, format: .number)
+                    TextField(tr("隧道检查间隔（秒）", "Tunnel check interval (s)"), value: $draft.tunnelWatchdogInterval, format: .number)
                 }
             }
             .formStyle(.grouped)
@@ -1684,9 +1701,9 @@ struct SettingsView: View {
                     .padding(.bottom, 8)
             }
             HStack {
-                Button("关闭") { dismiss() }
+                Button(tr("关闭", "Close")) { dismiss() }
                 Spacer()
-                Button("保存") { saveConfig() }
+                Button(tr("保存", "Save")) { saveConfig() }
                     .keyboardShortcut(.defaultAction)
             }
             .padding(16)
@@ -1711,7 +1728,7 @@ struct SettingsView: View {
         }
         do {
             try model.save(config: draft)
-            note = "配置已保存"
+            note = tr("配置已保存", "Config saved")
         } catch {
             note = error.localizedDescription
         }
@@ -1721,7 +1738,7 @@ struct SettingsView: View {
         do {
             try model.saveCredential(host: host, user: user, password: password)
             password = ""
-            note = "账号已更新"
+            note = tr("账号已更新", "Account updated")
             Task { await model.refresh() }
         } catch {
             note = error.localizedDescription
@@ -1750,15 +1767,15 @@ struct NetLinkCommands: Commands {
     var model: AppModel
 
     var body: some Commands {
-        CommandMenu("连接") {
-            Button("刷新状态") { Task { await model.refresh(manual: true) } }
+        CommandMenu(tr("连接", "Connection")) {
+            Button(tr("刷新状态", "Refresh Status")) { Task { await model.refresh(manual: true) } }
                 .keyboardShortcut("r")
-            Button("连接隧道") { model.connectTunnel() }
+            Button(tr("连接隧道", "Connect Tunnel")) { model.connectTunnel() }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
             Divider()
-            Button("连接 VPN") { model.connectVPN() }
-            Button("断开 VPN") { model.disconnectVPN() }
-            Button("断开隧道") { model.disconnectTunnel() }
+            Button(tr("连接 VPN", "Connect VPN")) { model.connectVPN() }
+            Button(tr("断开 VPN", "Disconnect VPN")) { model.disconnectVPN() }
+            Button(tr("断开隧道", "Disconnect Tunnel")) { model.disconnectTunnel() }
         }
     }
 }
