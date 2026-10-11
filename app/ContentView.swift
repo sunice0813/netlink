@@ -232,7 +232,8 @@ struct ContentView: View {
     private var noticeOverlay: some View {
         VStack(spacing: 8) {
             if let banner = model.banner {
-                notice(banner, symbol: "exclamationmark.circle.fill", tint: theme.warn, spinning: false)
+                notice(banner.text, symbol: "exclamationmark.circle.fill", tint: theme.warn, spinning: false, action: banner.action)
+                    .allowsHitTesting(banner.action != nil)
             }
             if let line = model.statusLine {
                 notice(
@@ -241,14 +242,14 @@ struct ContentView: View {
                     tint: model.busy || model.refreshingVisible ? theme.accent : theme.ok,
                     spinning: model.busy || model.refreshingVisible
                 )
+                .allowsHitTesting(false)
             }
         }
         .padding(.top, 70)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .allowsHitTesting(false)
     }
 
-    private func notice(_ text: String, symbol: String, tint: Color, spinning: Bool) -> some View {
+    private func notice(_ text: String, symbol: String, tint: Color, spinning: Bool, action: SetupAction? = nil) -> some View {
         HStack(spacing: 8) {
             if spinning {
                 ProgressView().controlSize(.small).tint(tint)
@@ -260,6 +261,14 @@ struct ContentView: View {
             Text(text)
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(2)
+            if let action {
+                Button(action.title) { model.perform(action) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+                    .disabled(model.busy)
+                    .padding(.leading, 4)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -728,6 +737,7 @@ struct LogsView: View {
             HStack(spacing: 0) {
                 logTab("VPN", tag: 0)
                 logTab("隧道", tag: 1)
+                logTab("安装", tag: 2)
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -756,7 +766,7 @@ struct LogsView: View {
     }
 
     private var logText: String {
-        let raw = logSource == 0 ? model.vpnLog : model.tunnelLog
+        let raw = [model.vpnLog, model.tunnelLog, model.setupLog][logSource]
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "还没有日志" : trimmed
     }

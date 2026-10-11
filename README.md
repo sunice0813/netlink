@@ -16,29 +16,29 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 
 ## 安装
 
-要求 macOS 14 或更新，Apple Silicon（arm64）。
+要求 macOS 14 或更新，Apple Silicon（arm64），已安装 [Homebrew](https://brew.sh)。
 
-1. 安装依赖：
-
-   ```bash
-   brew install openconnect autossh
-   ```
-
-2. 在 [Releases](../../releases) 下载 `NetLink-<版本>-arm64.dmg`，打开后把 NetLink 拖进「应用程序」。
-3. 解除下载带来的隔离标记：
+1. 在 [Releases](../../releases) 下载 `NetLink-<版本>-arm64.dmg`，打开后把 NetLink 拖进「应用程序」。
+2. 解除下载带来的隔离标记：
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/NetLink.app
    ```
 
-4. **配置免密 sudo（必须，见下面「免密 sudo」）**。不配置的话，连接和断开都会失败。
-5. 打开 NetLink。
+3. 打开 NetLink，点头部的「导入导出」导入配置文件。
 
-发布的版本没有开发者签名和公证，所以第 3 步是必需的，否则 macOS 会提示「无法验证是否包含恶意软件」。较新的系统上右键选择「打开」已经绕不过这个提示；不想用命令的话，可以在 系统设置 → 隐私与安全性 里点「仍要打开」。
+首次打开时，NetLink 会自动补齐运行环境：
+
+- **缺 `openconnect` 或 `autossh`**：在后台执行 `brew install openconnect autossh`，可能要几分钟，进度在 日志 → 安装。
+- **sudo 不能免密**：弹出系统的管理员密码框，写入 `/etc/sudoers.d/netlink`，只需输入一次。为什么要这样做，见下面「免密 sudo」。
+
+取消了密码框或安装失败时，窗口顶部会一直提示，点提示里的按钮可以重试。没装 Homebrew 时提示里有安装链接，装好后重新打开 NetLink 即可。
+
+发布的版本没有开发者签名和公证，所以第 2 步是必需的，否则 macOS 会提示「无法验证是否包含恶意软件」。较新的系统上右键选择「打开」已经绕不过这个提示；不想用命令的话，可以在 系统设置 → 隐私与安全性 里点「仍要打开」。
 
 ## 快速开始
 
-首次启动会生成带占位值的配置，需要换成自己的环境。
+有别人导出的配置文件（带 VPN 账号和私钥）时，导入后直接点「连接」即可，下面这些都不用做。从零配置时：
 
 1. **VPN 账号**：点 VPN 节点，选「修改账号」，填 VPN 主机、用户名和密码。
 2. **跳板机**：点跳板节点，选「修改跳板」，填 `user@host` 和 SSH 私钥路径。
@@ -109,18 +109,30 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 
 ## 免密 sudo
 
-**这一步是必须的。** 应用用 `sudo -n` 调用需要 root 的命令，`-n` 表示不允许询问密码。没有免密授权时命令会直接失败，窗口顶部会提示「sudo 不能免密执行，连接和断开都会失败」。
+应用用 `sudo -n` 调用需要 root 的命令，`-n` 表示不允许询问密码。没有免密授权时命令会直接失败。
 
-需要 root 的原因：`openconnect` 要建虚拟网卡、改路由；`autossh` 要监听 80 这类低端口；结束 root 起的进程要用 `kill`，查端口占用要用 `lsof`。
+需要 root 的原因：`openconnect` 要建虚拟网卡、改路由；`autossh` 要监听 80 这类低端口（macOS 只允许普通用户在 `0.0.0.0` 上监听低端口，`127.0.0.1` 不行）；结束 root 起的进程要用 `kill`，查端口占用要用 `lsof`。
 
-用 `sudo visudo -f /etc/sudoers.d/netlink` 创建：
+### 自动配置
+
+NetLink 每次刷新都会逐项检查下面五个命令能否免密执行。有缺的，首次打开时会弹出系统密码框，写入：
 
 ```
-# 把 yourname 换成自己的用户名
+# /etc/sudoers.d/netlink（root 属主，权限 440）
 yourname ALL=(root) NOPASSWD: /opt/homebrew/bin/openconnect, /opt/homebrew/bin/autossh, /bin/kill, /usr/sbin/lsof, /usr/bin/true
 ```
 
-这五项缺一不可，少了哪项，对应的操作就会失败：
+用户名取当前用户，`openconnect` 和 `autossh` 的路径取配置里的 `openconnectPath` / `autosshPath`。写入前先用 `visudo` 校验，装好后再校验一次，不通过就还原，不会把 sudo 弄坏。撤销：
+
+```bash
+sudo rm /etc/sudoers.d/netlink
+```
+
+### 手动配置
+
+不想让应用写 sudoers 的话，取消密码框，用 `sudo visudo -f /etc/sudoers.d/netlink` 写入上面那行规则（把 `yourname` 换成自己的用户名）。
+
+这五项缺一不可，少了哪项，对应的操作就会失败，顶部提示会列出缺哪几项：
 
 | 命令 | 用途 |
 | --- | --- |
@@ -128,23 +140,24 @@ yourname ALL=(root) NOPASSWD: /opt/homebrew/bin/openconnect, /opt/homebrew/bin/a
 | `autossh` | 建立 SSH 隧道 |
 | `kill` | 断开时结束 VPN 和隧道进程 |
 | `lsof` | 查本地端口是被谁占用 |
-| `true` | 启动时探测 sudo 是否免密可用 |
+| `true` | 探测 sudo 是否免密可用 |
 
-如果机器上已经有 `NOPASSWD: ALL` 这样的宽泛规则，就不用再加。可以用下面的命令检查，没有报错说明已经满足：
-
-```bash
-sudo -n true && echo ok
-```
+如果机器上已经有 `NOPASSWD: ALL` 这样的宽泛规则，就不用再加，应用也不会弹密码框。
 
 另外，日志和进程文件属 root 时，程序会对家目录下 `.pid` / `.log` 结尾的文件回退用 `cat`、`tail`、`tee`、`rm`。这几项是可选的，不放行只是读不到 root 属主的日志内容。
 
-程序只会结束带自己 `-E <隧道日志>` 标记的 `autossh` / `ssh` 进程，不会动占着同一端口的其他程序。`kill` 的免密授权范围较大，请只在自己的机器上这样配置。
+### 安全提示
+
+- 程序只会结束带自己 `-E <隧道日志>` 标记的 `autossh` / `ssh` 进程，不会动占着同一端口的其他程序。
+- `kill` 的免密授权范围较大，请只在自己的机器上这样配置。
+- `/opt/homebrew` 当前用户可写，免密 root 执行其中的程序，等于本机以你身份运行的程序都有机会拿到 root。手动和自动配置都是这样。
 
 ## 已知限制
 
 - 只发布 arm64 版本，依赖默认指向 `/opt/homebrew`。Intel Mac 需要自己构建并改 `openconnectPath` / `autosshPath`。
 - 同一时间只有一个 `openconnect` 连接：连另一个 VPN 会先断开当前的。
 - 没有开发者签名和公证，见上面的「安装」。
+- 自动安装依赖需要 Homebrew；Homebrew 本身的安装要交互输入密码，应用不代为安装。
 - 登录后自动打开应用不等于自动连接；要自动恢复连接，打开各节点的自动重连。
 
 ## 从源码构建

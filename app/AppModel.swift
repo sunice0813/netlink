@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -9,6 +10,7 @@ final class AppModel {
     var journal: [String] = []
     var vpnLog = ""
     var tunnelLog = ""
+    var setupLog = ""
     var busy = false
     var busyLabel: String?
     var job: Job?
@@ -26,6 +28,9 @@ final class AppModel {
     var fortiConnectAfterSave = false
 
     private var started = false
+    /// 每次启动只自动做一次，失败或取消后改用顶部提示里的按钮。
+    private var autoInstallTried = false
+    private var autoSudoTried = false
     private var refreshing = false
     private var journalTimer: Timer?
 
@@ -55,16 +60,64 @@ final class AppModel {
         return "shield.lefthalf.filled"
     }
 
-    var banner: String? {
-        if let configWarning { return configWarning }
+    var banner: Banner? {
+        if let configWarning { return Banner(text: configWarning) }
         if vpn.phase == .checking { return nil }
-        if !vpn.sudoOK { return "sudo 不能免密执行，连接和断开都会失败。" }
-        if !vpn.openconnectInstalled { return "找不到 \(config.openconnectPath)" }
-        if !tunnel.autosshInstalled { return "找不到 \(config.autosshPath)" }
+        let missing = [
+            vpn.openconnectInstalled ? nil : config.openconnectPath,
+            tunnel.autosshInstalled ? nil : config.autosshPath,
+        ].compactMap { $0 }
+        if !missing.isEmpty {
+            let names = missing.map { ($0 as NSString).lastPathComponent }.joined(separator: "、")
+            guard let brew = Setup.brewPath() else {
+                return Banner(text: "找不到 \(names)，需要先安装 Homebrew", action: .openHomebrew)
+            }
+            if !Setup.missingFormulas(config: config, brew: brew).isEmpty {
+                return Banner(text: "找不到 \(names)", action: .installDependencies)
+            }
+            return Banner(text: "找不到 \(missing.joined(separator: "、"))")
+        }
+        if !vpn.sudoOK {
+            let names = vpn.sudoMissing.map { ($0 as NSString).lastPathComponent }.joined(separator: "、")
+            return Banner(text: "sudo 不能免密执行 \(names)，连接和断开会失败", action: .configureSudo)
+        }
         if vpn.credentialOK == false && vpn.phase != .checking {
-            return "读不到 \(config.credentialFile) 里的 host / user / password"
+            return Banner(text: "读不到 \(config.credentialFile) 里的 host / user / password")
         }
         return nil
+    }
+
+    func perform(_ action: SetupAction) {
+        switch action {
+        case .installDependencies:
+            run(.setup, "正在用 Homebrew 安装依赖，可能要几分钟") { Setup.installDependencies() }
+        case .configureSudo:
+            run(.setup, "正在配置免密 sudo，请在弹出的窗口里输入密码") {
+                switch Setup.installSudoers() {
+                case .done: Engine.emit("免密 sudo 已配置")
+                case .cancelled: Engine.emit("已取消，可以点顶部的「配置免密 sudo」重试")
+                case .failed(let reason): Engine.emit(reason)
+                }
+            }
+        case .openHomebrew:
+            if let url = URL(string: "https://brew.sh") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    /// 打开后自动补齐环境：先装依赖，再配免密 sudo（会弹一次系统密码框）。
+    private func autoSetup() {
+        guard configWarning == nil, !busy, vpn.phase != .checking else { return }
+        if !autoInstallTried, let brew = Setup.brewPath(), !Setup.missingFormulas(config: config, brew: brew).isEmpty {
+            autoInstallTried = true
+            perform(.installDependencies)
+            return
+        }
+        if !autoSudoTried, !vpn.sudoOK {
+            autoSudoTried = true
+            perform(.configureSudo)
+        }
     }
 
     func start() {
@@ -137,18 +190,20 @@ final class AppModel {
             refreshingVisible = false
         }
         let config = self.config
-        let update: (VPNSnapshot, TunnelSnapshot, String, String) = await withCheckedContinuation { continuation in
+        let update: (VPNSnapshot, TunnelSnapshot, String, String, String) = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let probed = Engine.probe()
                 let vpnText = Redact.text(Shell.tail(path: PathExpander.expand(config.vpnLogFile), lines: 40))
                 let tunnelText = Redact.text(Shell.tail(path: PathExpander.expand(config.tunnelLogFile), lines: 40))
-                continuation.resume(returning: (probed.0, probed.1, vpnText, tunnelText))
+                let setupText = Shell.tail(path: Setup.logPath, lines: 80)
+                continuation.resume(returning: (probed.0, probed.1, vpnText, tunnelText, setupText))
             }
         }
         vpn = update.0
         tunnel = update.1
         vpnLog = update.2
         tunnelLog = update.3
+        setupLog = update.4
         let now = Date()
         checkedAt = now
         if let loaded = ConfigStore.loadIfValid() {
@@ -157,6 +212,7 @@ final class AppModel {
         if manual {
             post("已刷新 \(Self.clock.string(from: now))")
         }
+        autoSetup()
     }
 
     func askFortiAccount(thenConnect: Bool) {
@@ -607,6 +663,26 @@ enum Job: Equatable {
     case vpnTakeover, tunnelTakeover
     case vpnWatchOn, vpnWatchOff
     case tunnelWatchOn, tunnelWatchOff
+    case setup
+}
+
+struct Banner: Equatable {
+    var text: String
+    var action: SetupAction?
+}
+
+enum SetupAction: Equatable {
+    case installDependencies
+    case configureSudo
+    case openHomebrew
+
+    var title: String {
+        switch self {
+        case .installDependencies: return "用 Homebrew 安装"
+        case .configureSudo: return "配置免密 sudo"
+        case .openHomebrew: return "打开 brew.sh"
+        }
+    }
 }
 
 enum AppLocator {

@@ -48,6 +48,8 @@ struct VPNSnapshot: Equatable {
     var watchFlag = false
     var openconnectInstalled = true
     var sudoOK = true
+    /// 还不能免密 sudo 执行的命令。
+    var sudoMissing: [String] = []
     /// 当前已连接的系统 VPN 服务名，例如 Shadowrocket、FortiClient 对应的 "VPN"。
     var systemUp: Set<String> = []
 }
@@ -126,8 +128,8 @@ enum Engine {
         let procs = Shell.processes()
         var vpn = vpnSnapshot(config: config, procs: procs, ping: true)
         let tunnel = tunnelSnapshot(config: config, procs: procs)
-        let sudo = Shell.run("/usr/bin/true", [], sudo: true, timeout: 8)
-        vpn.sudoOK = sudo.ok
+        vpn.sudoMissing = Setup.sudoMissing(config: config)
+        vpn.sudoOK = vpn.sudoMissing.isEmpty
         if heal {
             healIfNeeded(vpn: vpn, tunnel: tunnel)
         }

@@ -151,6 +151,28 @@ enum SelfTest {
         check("manual ssh -L is left alone", !Engine.isOurForwardingSSH(manual, config: config) && !Engine.isOurAutossh(manual, config: config))
         check("unrelated command is left alone", !Engine.isOurAutossh(unrelated, config: config) && !Engine.isOurForwardingSSH(unrelated, config: config))
 
+        // 自动写入的 sudoers 规则
+        let commands = Setup.sudoCommands(config: AppConfig())
+        let rule = Setup.sudoersRule(user: "alice", commands: commands) ?? ""
+        check("sudoers rule", rule.contains("alice ALL=(root) NOPASSWD: /opt/homebrew/bin/openconnect, /opt/homebrew/bin/autossh, /bin/kill, /usr/sbin/lsof, /usr/bin/true\n"))
+        check("sudoers user injection refused", Setup.sudoersRule(user: "alice ALL=(ALL) NOPASSWD: ALL #", commands: commands) == nil)
+        check("sudoers user newline refused", Setup.sudoersRule(user: "alice\nroot", commands: commands) == nil)
+        check("sudoers path comma refused", Setup.sudoersRule(user: "alice", commands: ["/bin/kill, ALL"]) == nil)
+        check("sudoers path relative refused", Setup.sudoersRule(user: "alice", commands: ["kill"]) == nil)
+        check("sudoers path dotdot refused", Setup.sudoersRule(user: "alice", commands: ["/opt/../bin/sh"]) == nil)
+        let script = Setup.installScript(rule: rule)
+        check("sudoers script validates first", script.contains("visudo -cqf") && script.contains("install -m 0440 -o root -g wheel"))
+        check("sudoers script carries rule as base64", !script.contains("NOPASSWD") && script.contains(Data(rule.utf8).base64EncodedString()))
+        check("applescript escaping", Setup.appleScriptString(#"a "b" \c"#) == #""a \"b\" \\c""#)
+        var custom = AppConfig()
+        custom.openconnectPath = "/nonexistent/openconnect"
+        custom.autosshPath = "/nonexistent/autossh"
+        check("custom path is not a brew formula", Setup.missingFormulas(config: custom, brew: "/opt/homebrew/bin/brew").isEmpty)
+        var brewed = AppConfig()
+        brewed.openconnectPath = "/nonexistent-brew/bin/openconnect"
+        brewed.autosshPath = "/nonexistent-brew/bin/autossh"
+        check("missing brew formulas", Setup.missingFormulas(config: brewed, brew: "/nonexistent-brew/bin/brew") == ["openconnect", "autossh"])
+
         // sudo 只碰家目录下的 .pid / .log
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         check("sudo path: pid file allowed", SudoPath.allowed(home + "/.openconnect.pid"))
