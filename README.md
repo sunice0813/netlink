@@ -35,11 +35,13 @@ On first launch NetLink installs `openconnect` and `autossh` automatically, whic
 
 If someone gave you an exported config (with VPN accounts and keys), import it and click **Connect**. Nothing below is needed. To set things up from scratch:
 
-1. **VPN account**: click the VPN node, choose **Edit account**, and enter the VPN host, user name and password.
-2. **Jump host**: click the jump host node, choose **Edit jump host**, and enter `user@host` and the SSH private key path.
-3. **Forwards**: click the jump host node, choose **Add tunnel**, and enter the local port and the intranet target.
-4. **Connect**: click **Connect** on a forward or jump host node. If the jump host is unreachable, the VPN is connected first.
-5. **Health check**: in Settings → VPN Health Check, set "Network expected in the routes" and "Gateway to ping" to your intranet values (see [Configuration](#configuration)). The gateway can be written as `host:port` to use a TCP check instead.
+The main window has the node list on the left, the map in the middle, and the details of the selected node on the right (the inspector). Select a node in the list or on the map, or right-click it, to act on it.
+
+1. **VPN account**: select the VPN and click **Edit Account** in the inspector. Enter the VPN host, user name and password.
+2. **Jump host**: select the jump host and click **Edit Jump Host**. Enter `user@host` and the SSH private key path.
+3. **Forwards**: select the jump host and click **Add Forward**. Enter the local port and the intranet target.
+4. **Connect**: turn on the switch at the top of the inspector for a forward or jump host. If the jump host is unreachable, the VPN is connected first.
+5. **Health check**: in Settings (⌘,) → Health Check, set the network expected in the routes and the gateway to your intranet values (see [Configuration](#configuration)). The gateway can be written as `host:port` to use a TCP check instead.
 
 The password is only stored in the credential file on this Mac (`~/.internalvpn` by default, mode 600). The app passes it to `openconnect` on standard input; it never appears in command-line arguments, logs or the config.
 
@@ -47,15 +49,17 @@ The password is only stored in the credential file on this Mac (`~/.internalvpn`
 
 | Feature | Description |
 | --- | --- |
-| Topology map | This Mac, VPNs, jump hosts and forwards drawn as one map; a lit line means that hop is up. Nodes can be dragged and their positions are saved |
+| Topology map | This Mac, VPNs, jump hosts and forwards drawn as one map; a solid green line means that hop is up. Nodes can be dragged and their positions are saved; dropping a forward next to another jump host moves it there |
+| Inspector | The selected node's status, connect switch, details and actions in one panel |
 | Multiple VPNs and jump hosts | Choose which VPN each jump host sits behind and which jump host each forward uses |
 | Upstream | Mark that a VPN's traffic first goes through another VPN (such as Shadowrocket). Only affects the map and status, not the connection |
 | Auto-reconnect | Separate switches for the VPN and tunnels. Restarts only after 2 consecutive failures; the count and interval are configurable |
 | System VPNs | Detects Shadowrocket and FortiClient, shows their status, and opens or quits them |
 | Import / Export | Export the config as JSON or import it from a file. VPN accounts and SSH private keys can be included, so importing on another Mac just works. Imports are previewed and validated, and the current config is backed up before it's replaced |
 | Launch at login | A switch in Settings that opens the app after login (it doesn't connect by itself) |
-| Logs | Log pages for the VPN and tunnels; passwords never appear in them |
+| Logs | A separate window with VPN, tunnel and install logs; passwords never appear in them |
 | Language | English and Chinese. Follows the system by default and can be changed in Settings |
+| Menu bar | A switch for each VPN and forward, plus auto-reconnect |
 
 To print the status without changing anything:
 
@@ -74,7 +78,7 @@ Closing the window only hides it; connections and the background service keep ru
 
 ## Configuration
 
-The config file is `~/Library/Application Support/NetLink/config.json`. Accounts, jump hosts, forwards and the main health-check options can be changed in Settings; `tunnelFailThreshold`, `forwards[].check`, `openconnectPath` / `autosshPath` and a few others can only be changed in the file. Restart the tunnel after changing forwards.
+The config file is `~/Library/Application Support/NetLink/config.json`. Accounts, jump hosts and forwards are edited in the main window's inspector; health checks and the `openconnect` / `autossh` paths are in Settings. `forwards[].check` and a few others can only be changed in the file. Restart the tunnel after changing forwards.
 
 | Key | Description |
 | --- | --- |

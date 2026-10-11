@@ -53,13 +53,6 @@ final class AppModel {
         AppLocator.model = self
     }
 
-    var menuSymbol: String {
-        if vpn.phase == .checking || tunnel.phase == .checking { return "shield" }
-        if vpn.phase == .up && tunnel.phase == .up { return "checkmark.shield.fill" }
-        if vpn.phase == .down && tunnel.phase == .down { return "shield.slash" }
-        return "shield.lefthalf.filled"
-    }
-
     var banner: Banner? {
         if let configWarning { return Banner(text: configWarning) }
         if vpn.phase == .checking { return nil }
@@ -652,6 +645,95 @@ final class AppModel {
             }
             try? await Task.sleep(for: .seconds(6))
         }
+    }
+}
+
+// MARK: - 给界面用的状态
+
+extension AppModel {
+    func isOn(_ profile: VPNProfile) -> Bool {
+        if profile.isSystemVPN { return vpn.systemUp.contains(profile.serviceName) }
+        let host = Engine.vpnHostKey(Credentials.load(file: profile.credentialFile)?.host ?? "")
+        let live = Engine.vpnHostKey(vpn.connectedHost)
+        if live.isEmpty {
+            return config.vpns.filter { !$0.isSystemVPN }.count == 1 && vpn.phase == .up
+        }
+        return !host.isEmpty && (live == host || live.contains(host) || host.contains(live))
+    }
+
+    func isOn(_ jump: Jump) -> Bool {
+        if tunnel.runningJumpHosts.contains(jump.host) { return true }
+        return config.jumps.count == 1 && tunnel.autosshRunning
+    }
+
+    func status(of forward: Forward) -> PortStatus {
+        if let found = tunnel.ports.first(where: { $0.localPort == forward.localPort }) {
+            return found
+        }
+        return PortStatus(
+            name: forward.name,
+            localPort: forward.localPort,
+            target: forward.target,
+            browseLabel: forward.browseLabel,
+            browseURL: forward.browseURL?.absoluteString ?? "",
+            enabled: forward.enabled,
+            listening: false,
+            httpOK: false
+        )
+    }
+
+    /// 转发是否算「开着」：通了，或者端口已经在听（远端暂时没响应）。
+    func isOn(_ forward: Forward) -> Bool {
+        let port = status(of: forward)
+        return port.httpOK || port.listening
+    }
+
+    func vpnHost(_ profile: VPNProfile) -> String {
+        Credentials.load(file: profile.credentialFile)?.host ?? ""
+    }
+
+    /// VPN 和隧道的自动重连都开着。
+    var autoReconnectOn: Bool { vpn.watch != .off && tunnel.watch != .off }
+
+    func setAutoReconnect(_ on: Bool) {
+        Prefs.vpnAutoReconnect = on
+        Prefs.tunnelAutoReconnect = on
+        run(on ? .vpnWatchOn : .vpnWatchOff, on ? tr("正在开启自动重连", "Turning on auto-reconnect") : tr("正在关闭自动重连", "Turning off auto-reconnect")) {
+            Engine.setVPNWatch(on: on)
+            Engine.setTunnelWatch(on: on)
+        }
+    }
+
+    func disconnectAll() {
+        run(.tunnelDisconnect, tr("正在全部断开", "Disconnecting everything")) {
+            Engine.disconnectTunnel()
+            Engine.disconnectVPN()
+        }
+    }
+
+    func updateForward(_ id: UUID, name: String, localPort: Int, targetHost: String, targetPort: Int, openHost: String) throws {
+        var next = config
+        guard let index = next.forwards.firstIndex(where: { $0.id == id }) else { return }
+        next.forwards[index].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        next.forwards[index].localPort = localPort
+        next.forwards[index].targetHost = targetHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        next.forwards[index].targetPort = targetPort
+        next.forwards[index].openHost = openHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        try save(config: next)
+    }
+
+    func updateHealthCheck(_ draft: AppConfig) throws {
+        var next = config
+        next.routeMarker = draft.routeMarker
+        next.pingHost = draft.pingHost
+        next.vpnWatchdogInterval = draft.vpnWatchdogInterval
+        next.vpnFailThreshold = draft.vpnFailThreshold
+        next.tunnelWatchdogInterval = draft.tunnelWatchdogInterval
+        next.tunnelFailThreshold = draft.tunnelFailThreshold
+        next.reconnectTimeout = draft.reconnectTimeout
+        next.openconnectPath = draft.openconnectPath
+        next.autosshPath = draft.autosshPath
+        try save(config: next)
     }
 }
 

@@ -63,13 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func presentMainWindow() {
         let titled = NSApp.windows.filter { $0.styleMask.contains(.titled) && $0.level == .normal }
         for window in titled {
-            window.minSize = NSSize(width: 880, height: 400)
+            window.minSize = NSSize(width: 900, height: 520)
             let frame = window.frame
-            let tiny = frame.width < 860 || frame.height < 430
-            let loose = frame.height > 520 && frame.height < 700
-            if tiny || loose {
-                let width = frame.width < 860 ? 980 : frame.width
-                window.setContentSize(NSSize(width: width, height: 480))
+            // 旧版本记住的窗口偏小（侧边栏和检查器放不下），放大到默认尺寸。
+            if frame.width < 900 || frame.height < 520 {
+                window.setContentSize(NSSize(width: 1100, height: 660))
             }
             if let screen = NSScreen.main {
                 window.setFrameOrigin(origin(for: window.frame.size, on: screen))
@@ -117,17 +115,35 @@ struct NetLinkApp: App {
             ContentView(model: model)
                 .themed()
         }
-        .defaultSize(width: 980, height: 480)
+        .defaultSize(width: 1100, height: 660)
         .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unified)
         .commands {
             NetLinkCommands(model: model)
+        }
+
+        Window(tr("日志", "Logs"), id: "logs") {
+            LogsView(model: model)
+                .themed()
+        }
+        .defaultSize(width: 760, height: 520)
+
+        Window(tr("导入导出", "Import / Export"), id: "transfer") {
+            ConfigTransferView(model: model)
+                .themed()
+        }
+        .windowResizability(.contentSize)
+
+        Settings {
+            SettingsView(model: model)
+                .themed()
         }
 
         MenuBarExtra {
             MenuPanel(model: model)
                 .themed()
         } label: {
-            Image(systemName: model.menuSymbol)
+            Image(nsImage: PathGlyph.image(model.linkState))
         }
         .menuBarExtraStyle(.window)
     }

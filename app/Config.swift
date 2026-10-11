@@ -213,7 +213,8 @@ struct AppConfig: Codable, Equatable {
     var openconnectPath: String = "/opt/homebrew/bin/openconnect"
     var autosshPath: String = "/opt/homebrew/bin/autossh"
 
-    static let layoutRevision = 1
+    /// 节点尺寸变了就加一：旧的位置按旧尺寸摆的，升级后重新排一次。
+    static let layoutRevision = 2
 
     private enum CodingKeys: String, CodingKey {
         case credentialFile, vpnPidFile, vpnLogFile, vpnWatchdogFile
@@ -266,11 +267,11 @@ enum TopologySide {
 }
 
 enum TopologyMetrics {
-    static let nodeSize = CGSize(width: 140, height: 112)
-    static let columnGap: CGFloat = 76
-    static let rowGap: CGFloat = 18
-    static let origin = CGPoint(x: 32, y: 20)
-    static let inset: CGFloat = 16
+    static let nodeSize = CGSize(width: 160, height: 54)
+    static let columnGap: CGFloat = 44
+    static let rowGap: CGFloat = 16
+    static let origin = CGPoint(x: 28, y: 28)
+    static let inset: CGFloat = 12
 
     static func center(of origin: CGPoint) -> CGPoint {
         CGPoint(x: origin.x + nodeSize.width / 2, y: origin.y + nodeSize.height / 2)
