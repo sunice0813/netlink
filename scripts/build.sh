@@ -12,7 +12,10 @@ EXEC_NAME="NetLink"
 
 echo "▸ 编译"
 mkdir -p "$BUILD_DIR/module-cache"
+# 和 Info.plist 的 LSMinimumSystemVersion 一致。不写的话最低系统跟着本机 SDK 走，
+# 用新 Xcode 编出来的应用在 macOS 14 上打不开；写了，用到 14 以后才有的 API 也会直接报错。
 swiftc -parse-as-library -O -swift-version 5 \
+  -target arm64-apple-macos14.0 \
   -Xcc -fmodules-cache-path="$BUILD_DIR/module-cache" \
   -framework AppKit \
   -framework SwiftUI \

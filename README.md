@@ -117,7 +117,7 @@ With the option unchecked, only the config is exported: paths are written as `~/
 
 ## Build from source
 
-Requires the Xcode command line tools (`swiftc`).
+Requires Xcode 16 or later, or its command line tools (`swiftc`). The app still runs on macOS 14: `build.sh` sets the deployment target explicitly.
 
 ```bash
 ./scripts/build.sh          # compile, run the self-test, build NetLink.app

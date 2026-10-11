@@ -10,8 +10,16 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # 用 Xcode 16 的 SDK 编；build.sh 里固定了最低 macOS 14，产物照样能在 14 上跑。
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: 工具链
+        run: swiftc --version
       - name: 编译并自检
         run: ./scripts/build.sh
+      - name: 确认最低系统是 macOS 14
+        run: |
+          minos="$(otool -l NetLink.app/Contents/MacOS/NetLink | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+          echo "最低系统：$minos"
+          test "$minos" = "14.0"

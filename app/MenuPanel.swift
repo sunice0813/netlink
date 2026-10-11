@@ -6,7 +6,6 @@ import SwiftUI
 struct MenuPanel: View {
     var model: AppModel
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
     @Environment(\.netlinkTheme) private var theme
 
     var body: some View {
@@ -56,10 +55,7 @@ struct MenuPanel: View {
             }
             divider
             MenuButtonRow(title: tr("打开内网连接", "Open NetLink")) { showMain() }
-            MenuButtonRow(title: tr("设置…", "Settings…")) {
-                NSApp.activate(ignoringOtherApps: true)
-                openSettings()
-            }
+            MenuSettingsRow(title: tr("设置…", "Settings…"))
             MenuButtonRow(title: tr("退出并断开", "Quit and Disconnect")) { NSApp.terminate(nil) }
         }
         .padding(6)
@@ -221,21 +217,47 @@ struct MenuToggleRow: View {
 struct MenuButtonRow: View {
     var title: String
     var action: () -> Void
-    @Environment(\.netlinkTheme) private var theme
     @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 13))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(hovered ? Color.accentColor : Color.clear))
-                .foregroundStyle(hovered ? Color.white : theme.text)
-                .contentShape(Rectangle())
+            MenuRowLabel(title: title, hovered: hovered)
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+    }
+}
+
+/// 打开设置窗口。用 SettingsLink（macOS 14 起就有）；openSettings 要 Xcode 16 的 SDK，CI 上编不过。
+@MainActor
+struct MenuSettingsRow: View {
+    var title: String
+    @State private var hovered = false
+
+    var body: some View {
+        SettingsLink {
+            MenuRowLabel(title: title, hovered: hovered)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        // 从菜单栏打开时应用不在前台，设置窗口会被别的窗口挡住。
+        .simultaneousGesture(TapGesture().onEnded { NSApp.activate(ignoringOtherApps: true) })
+    }
+}
+
+private struct MenuRowLabel: View {
+    var title: String
+    var hovered: Bool
+    @Environment(\.netlinkTheme) private var theme
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 13))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(hovered ? Color.accentColor : Color.clear))
+            .foregroundStyle(hovered ? Color.white : theme.text)
+            .contentShape(Rectangle())
     }
 }

@@ -117,7 +117,7 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 
 ## 从源码构建
 
-需要 Xcode 命令行工具（`swiftc`）。
+需要 Xcode 16 或更新版本（或它的命令行工具，`swiftc`）。编出来的应用仍然支持 macOS 14：`build.sh` 里固定了最低系统版本。
 
 ```bash
 ./scripts/build.sh          # 编译、跑自检、生成 NetLink.app
