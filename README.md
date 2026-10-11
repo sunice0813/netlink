@@ -16,25 +16,18 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 
 ## 安装
 
-要求 macOS 14 或更新，Apple Silicon（arm64），已安装 [Homebrew](https://brew.sh)。
+要求 macOS 14 或更新、Apple Silicon，并已安装 [Homebrew](https://brew.sh)。
 
-1. 在 [Releases](../../releases) 下载 `NetLink-<版本>-arm64.dmg`，打开后把 NetLink 拖进「应用程序」。
-2. 解除下载带来的隔离标记：
+1. 从 [Releases](../../releases) 下载 `NetLink-<版本>-arm64.dmg`，把 NetLink 拖进「应用程序」。
+2. 在终端执行（应用没有签名，需要解除一次隔离）：
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/NetLink.app
    ```
 
-3. 打开 NetLink，点头部的「导入导出」导入配置文件。
+3. 打开 NetLink，按提示输入一次电脑密码，然后点「导入导出」导入配置。
 
-首次打开时，NetLink 会自动补齐运行环境：
-
-- **缺 `openconnect` 或 `autossh`**：在后台执行 `brew install openconnect autossh`，可能要几分钟，进度在 日志 → 安装。
-- **sudo 不能免密**：弹出系统的管理员密码框，写入 `/etc/sudoers.d/netlink`，只需输入一次。为什么要这样做，见下面「免密 sudo」。
-
-取消了密码框或安装失败时，窗口顶部会一直提示，点提示里的按钮可以重试。没装 Homebrew 时提示里有安装链接，装好后重新打开 NetLink 即可。
-
-发布的版本没有开发者签名和公证，所以第 2 步是必需的，否则 macOS 会提示「无法验证是否包含恶意软件」。较新的系统上右键选择「打开」已经绕不过这个提示；不想用命令的话，可以在 系统设置 → 隐私与安全性 里点「仍要打开」。
+首次打开时会自动安装 `openconnect`、`autossh`，可能要几分钟。输入密码是为了让 VPN 和隧道以后能直接连接、断开，不用每次输密码。
 
 ## 快速开始
 
@@ -106,51 +99,6 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 - 这样的文件里是**明文密码和私钥**，请当成密码一样保管，只交给自己信任的人。
 
 取消勾选则只导出配置：路径会写成 `~/...`，导入后凭据文件不存在的 VPN 需要重新填账号，预览里会提示。
-
-## 免密 sudo
-
-应用用 `sudo -n` 调用需要 root 的命令，`-n` 表示不允许询问密码。没有免密授权时命令会直接失败。
-
-需要 root 的原因：`openconnect` 要建虚拟网卡、改路由；`autossh` 要监听 80 这类低端口（macOS 只允许普通用户在 `0.0.0.0` 上监听低端口，`127.0.0.1` 不行）；结束 root 起的进程要用 `kill`，查端口占用要用 `lsof`。
-
-### 自动配置
-
-NetLink 每次刷新都会逐项检查下面五个命令能否免密执行。有缺的，首次打开时会弹出系统密码框，写入：
-
-```
-# /etc/sudoers.d/netlink（root 属主，权限 440）
-yourname ALL=(root) NOPASSWD: /opt/homebrew/bin/openconnect, /opt/homebrew/bin/autossh, /bin/kill, /usr/sbin/lsof, /usr/bin/true
-```
-
-用户名取当前用户，`openconnect` 和 `autossh` 的路径取配置里的 `openconnectPath` / `autosshPath`。写入前先用 `visudo` 校验，装好后再校验一次，不通过就还原，不会把 sudo 弄坏。撤销：
-
-```bash
-sudo rm /etc/sudoers.d/netlink
-```
-
-### 手动配置
-
-不想让应用写 sudoers 的话，取消密码框，用 `sudo visudo -f /etc/sudoers.d/netlink` 写入上面那行规则（把 `yourname` 换成自己的用户名）。
-
-这五项缺一不可，少了哪项，对应的操作就会失败，顶部提示会列出缺哪几项：
-
-| 命令 | 用途 |
-| --- | --- |
-| `openconnect` | 连接 VPN |
-| `autossh` | 建立 SSH 隧道 |
-| `kill` | 断开时结束 VPN 和隧道进程 |
-| `lsof` | 查本地端口是被谁占用 |
-| `true` | 探测 sudo 是否免密可用 |
-
-如果机器上已经有 `NOPASSWD: ALL` 这样的宽泛规则，就不用再加，应用也不会弹密码框。
-
-另外，日志和进程文件属 root 时，程序会对家目录下 `.pid` / `.log` 结尾的文件回退用 `cat`、`tail`、`tee`、`rm`。这几项是可选的，不放行只是读不到 root 属主的日志内容。
-
-### 安全提示
-
-- 程序只会结束带自己 `-E <隧道日志>` 标记的 `autossh` / `ssh` 进程，不会动占着同一端口的其他程序。
-- `kill` 的免密授权范围较大，请只在自己的机器上这样配置。
-- `/opt/homebrew` 当前用户可写，免密 root 执行其中的程序，等于本机以你身份运行的程序都有机会拿到 root。手动和自动配置都是这样。
 
 ## 已知限制
 
