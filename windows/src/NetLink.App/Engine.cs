@@ -4,7 +4,7 @@ using static NetLink.Core.Text;
 
 namespace NetLink.App;
 
-/// 连接和断开的实际步骤，行为对齐 Mac 版 app/Engine.swift。
+/// 连接和断开的实际步骤，行为对齐 Mac 版 mac/Engine.swift。
 /// 改连接状态的函数都在 OperationLock 里跑，和自动重连的守护互斥。
 /// VPN 交给 NetLink.Service（SYSTEM）去连；ssh 隧道以当前用户身份跑，不需要管理员权限。
 public static class Engine

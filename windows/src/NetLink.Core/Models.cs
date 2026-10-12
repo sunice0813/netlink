@@ -2,7 +2,7 @@ using static NetLink.Core.Text;
 
 namespace NetLink.Core;
 
-// 和 Mac 版 app/Config.swift 的结构一一对应，config.json 两边可以互相导入。
+// 和 Mac 版 mac/Config.swift 的结构一一对应，config.json 两边可以互相导入。
 
 public enum ForwardCheck
 {

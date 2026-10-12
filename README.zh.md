@@ -154,7 +154,7 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 需要 Xcode 16 或更新版本（或它的命令行工具，`swiftc`）。编出来的应用仍然支持 macOS 14：`build.sh` 里固定了最低系统版本。
 
 ```bash
-./scripts/build.sh          # 编译、跑自检、生成 NetLink.app
+./mac/scripts/build.sh          # 编译、跑自检、生成 NetLink.app
 open NetLink.app
 ```
 
@@ -164,9 +164,9 @@ open NetLink.app
 NetLink.app/Contents/MacOS/NetLink --self-test
 ```
 
-`scripts/make-dmg.sh <NetLink.app> <输出.dmg>` 把构建出的应用打成安装镜像。
+`mac/scripts/make-dmg.sh <NetLink.app> <输出.dmg>` 把构建出的应用打成安装镜像。
 
-界面文案写在代码里，中英文并列：`tr("连接", "Connect")`（见 `app/L10n.swift`）。
+界面文案写在代码里，中英文并列：`tr("连接", "Connect")`（见 `mac/L10n.swift`）。
 
 ### Windows 版
 

@@ -154,7 +154,7 @@ Notes:
 Requires Xcode 16 or later, or its command line tools (`swiftc`). The app still runs on macOS 14: `build.sh` sets the deployment target explicitly.
 
 ```bash
-./scripts/build.sh          # compile, run the self-test, build NetLink.app
+./mac/scripts/build.sh          # compile, run the self-test, build NetLink.app
 open NetLink.app
 ```
 
@@ -164,9 +164,9 @@ open NetLink.app
 NetLink.app/Contents/MacOS/NetLink --self-test
 ```
 
-`scripts/make-dmg.sh <NetLink.app> <output.dmg>` packages a built app as a disk image.
+`mac/scripts/make-dmg.sh <NetLink.app> <output.dmg>` packages a built app as a disk image.
 
-UI text lives in the code, with Chinese and English side by side: `tr("连接", "Connect")` (see `app/L10n.swift`).
+UI text lives in the code, with Chinese and English side by side: `tr("连接", "Connect")` (see `mac/L10n.swift`).
 
 ### Windows version
 

@@ -2,11 +2,12 @@
 # 编译内网连接.app
 set -euo pipefail
 
-APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_DIR="$APP_ROOT/app"
+# 脚本在 mac/scripts/ 下：APP_DIR 是 Mac 版源码目录（mac/），REPO_ROOT 是仓库根目录。
+APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$APP_DIR/.." && pwd)"
 BUILD_DIR="$APP_DIR/build"
 # NETLINK_OUT 指定产物目录（默认仓库根目录）；NETLINK_VERSION 写进 Info.plist（发布时由 CI 传入 Tag）。
-OUT_DIR="${NETLINK_OUT:-$APP_ROOT}"
+OUT_DIR="${NETLINK_OUT:-$REPO_ROOT}"
 APP_BUNDLE="$OUT_DIR/NetLink.app"
 EXEC_NAME="NetLink"
 
@@ -48,7 +49,7 @@ fi
 
 ICON_PNG="$BUILD_DIR/icon.png"
 ICONSET="$BUILD_DIR/icon.iconset"
-if swiftc -O -framework AppKit "$APP_ROOT/scripts/render-icon.swift" -o "$BUILD_DIR/render-icon" \
+if swiftc -O -framework AppKit "$APP_DIR/scripts/render-icon.swift" -o "$BUILD_DIR/render-icon" \
   && "$BUILD_DIR/render-icon" "$ICON_PNG"; then
   rm -rf "$ICONSET"
   mkdir -p "$ICONSET"

@@ -1,4 +1,4 @@
-app/build/
+mac/build/
 .DS_Store
 /NetLink.app
 windows/**/bin/
