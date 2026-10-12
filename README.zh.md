@@ -16,6 +16,8 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 
 关掉窗口不会断开连接，菜单栏图标一直在。
 
+也有 Windows 版，功能基本一致，见 [Windows 版](#windows-版)。
+
 ## 安装
 
 要求 macOS 14 或更新、Apple Silicon，并已安装 [Homebrew](https://brew.sh)。
@@ -107,6 +109,38 @@ macOS 菜单栏应用，用来管理访问公司内网的这条链路：
 
 取消勾选则只导出配置：路径会写成 `~/...`，导入后凭据文件不存在的 VPN 需要重新填账号，预览里会提示。
 
+## Windows 版
+
+要求 Windows 10 1809 或更新（x64）。代码在 `windows/` 目录下。
+
+1. 从 [Releases](../../releases) 下载 `NetLink-<版本>-x64-setup.exe` 并运行，允许一次 UAC 提示。应用、openconnect（含 Wintun 驱动）和后台服务 `NetLinkService` 会一起装好，不需要另装别的。安装包没有签名，SmartScreen 拦截时点「更多信息 → 仍要运行」。
+2. 打开 NetLink，点工具栏的「导入导出」导入配置。Mac 版导出的配置可以直接导入。
+
+主窗口、拓扑图、检查器、导入导出和设置的用法和 Mac 版相同。不同的地方：
+
+| 项目 | Windows 版 |
+| --- | --- |
+| VPN | openconnect 由后台服务（SYSTEM 身份）运行。应用本身不需要管理员权限，也没有免密 sudo 这一步 |
+| 隧道 | 用系统自带的 `ssh.exe`（OpenSSH 客户端），断线重连由应用负责，不用 autossh |
+| 菜单栏 | 换成通知区域图标：左键打开开关面板，右键是菜单，双击打开主窗口 |
+| 账号文件 | 用当前 Windows 账户加密（DPAPI），别的账户和别的电脑解不开；手写的明文文件也能读 |
+| 私钥 | Windows 的 ssh 要求私钥只有自己能读。导入的私钥会自动收紧权限；自己的私钥权限太宽时，跳板详情里有「修复私钥权限」 |
+| 路由检查 | `routeMarker` 按 `route print` 的输出匹配 |
+| Shadowrocket、FortiClient | 不支持，导入时会去掉 |
+| 文件位置 | 配置在 `%APPDATA%\NetLink\config.json`；VPN 日志在 `C:\ProgramData\NetLink\openconnect.log`，在应用的「日志」窗口里看 |
+
+只看状态不做改动：
+
+```powershell
+& "C:\Program Files\NetLink\NetLink.exe" --status | Out-Host
+```
+
+注意事项：
+
+- 本机 80 端口常被 IIS / http.sys 占用（PID 4）。转发连不上时，提示里会写出占用端口的程序，可以把转发改到 8080 这类端口。
+- 注销 Windows 时会断开 VPN；后台服务会一直运行，下次打开应用就能连接。
+- 卸载会断开连接、删除后台服务；`%APPDATA%\NetLink` 里的配置和账号会保留。
+
 ## 已知限制
 
 - 只发布 arm64 版本，依赖默认指向 `/opt/homebrew`。Intel Mac 需要自己构建并改 `openconnectPath` / `autosshPath`。
@@ -134,16 +168,32 @@ NetLink.app/Contents/MacOS/NetLink --self-test
 
 界面文案写在代码里，中英文并列：`tr("连接", "Connect")`（见 `app/L10n.swift`）。
 
+### Windows 版
+
+需要 .NET 10 SDK、Inno Setup 6 和 7-Zip，在 Windows 上执行：
+
+```powershell
+.\windows\scripts\build.ps1 -Version 0.3.0   # 测试、发布应用和服务、取 openconnect、打安装包
+```
+
+产物在 `windows\out\NetLink-0.3.0-x64-setup.exe`。openconnect 固定用官方 v9.12 的 Windows 构建，脚本会校验 sha256，见 `windows/scripts/fetch-openconnect.ps1`。
+
+配置、导入导出、命令参数这些和系统无关的部分在 `windows/src/NetLink.Core`，测试在任何系统上都能跑：
+
+```bash
+dotnet test windows/tests/NetLink.Tests
+```
+
 ### 发布
 
-推送 `v*` 形式的 Tag，GitHub Actions 会编译 arm64 版本、打成 dmg 并发布到 Releases：
+推送 `v*` 形式的 Tag，GitHub Actions 会编译 arm64 版本、打成 dmg 并发布到 Releases，同时打 Windows 安装包传到同一个 Release：
 
 ```bash
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-产物是 `NetLink-v0.2.0-arm64.dmg` 和对应的 `.sha256`，应用内版本号取自 Tag。每次推送到 `main` 和每个 PR 也会跑一遍编译和自检。
+产物是 `NetLink-v0.2.0-arm64.dmg`、`NetLink-v0.2.0-x64-setup.exe` 和各自的 `.sha256`，应用内版本号取自 Tag。每次推送到 `main` 和每个 PR 也会跑一遍两个版本的编译和测试。
 
 ## 许可证
 

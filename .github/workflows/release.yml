@@ -55,10 +55,43 @@ jobs:
 
           安装：打开 dmg，把 NetLink 拖进「应用程序」，然后在终端执行（这个版本没有签名和公证，需要解除一次隔离）：
           \`xattr -dr com.apple.quarantine /Applications/NetLink.app\`
-          打开 NetLink 后导入配置即可。首次打开会自动用 Homebrew 安装 openconnect、autossh，并弹一次系统密码框配置免密 sudo。"
+          打开 NetLink 后导入配置即可。首次打开会自动用 Homebrew 安装 openconnect、autossh，并弹一次系统密码框配置免密 sudo。
+
+          Windows: run NetLink-${TAG}-x64-setup.exe (Windows 10 1809 or later, x64). Allow the UAC prompt once; it installs the app, the bundled openconnect and the background service. SmartScreen may warn because the installer isn't signed: click More info → Run anyway.
+
+          Windows：运行 NetLink-${TAG}-x64-setup.exe（Windows 10 1809 或更新，x64），允许一次 UAC 提示，应用、自带的 openconnect 和后台服务会一起装好。安装包没有签名，SmartScreen 拦截时点「更多信息 → 仍要运行」。"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$dmg" "$dmg.sha256" --clobber
           else
             gh release create "$TAG" "$dmg" "$dmg.sha256" \
               --title "$TAG" --generate-notes --notes "$notes" --verify-tag
           fi
+
+  windows:
+    # Mac 版那一步建好 Release 之后，再把 Windows 安装包传上去。
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: 编译、测试、打安装包
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./windows/scripts/build.ps1 -Version ($env:TAG -replace '^v', '')
+      - name: 发布
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = $env:TAG -replace '^v', ''
+          $built = "windows/out/NetLink-$version-x64-setup.exe"
+          $setup = "NetLink-$($env:TAG)-x64-setup.exe"
+          Copy-Item $built $setup
+          $hash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
+          "$hash  $setup" | Out-File -Encoding ascii "$setup.sha256"
+          Get-Content "$setup.sha256"
+          gh release upload $env:TAG $setup "$setup.sha256" --clobber

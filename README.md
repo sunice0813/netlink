@@ -16,6 +16,8 @@ It puts three things on one map:
 
 Closing the window doesn't disconnect anything; the menu bar icon stays.
 
+There is also a Windows version with mostly the same features; see [Windows](#windows).
+
 ## Install
 
 Requires macOS 14 or later, Apple Silicon, and [Homebrew](https://brew.sh).
@@ -107,6 +109,38 @@ If the config file can't be read, background actions and auto-reconnect stop rat
 
 With the option unchecked, only the config is exported: paths are written as `~/...`, and VPNs whose credential file doesn't exist after import need their account entered again. The preview points these out.
 
+## Windows
+
+Requires Windows 10 1809 or later (x64). The code lives in `windows/`.
+
+1. Download `NetLink-<version>-x64-setup.exe` from [Releases](../../releases), run it and allow the UAC prompt once. It installs the app, openconnect (with the Wintun driver) and the `NetLinkService` background service; nothing else needs installing. The installer isn't signed, so if SmartScreen stops it, click **More info → Run anyway**.
+2. Open NetLink and click **Import / Export** in the toolbar to import your config. Configs exported by the Mac version import as is.
+
+The main window, map, inspector, import / export and settings work as on the Mac. The differences:
+
+| Item | Windows version |
+| --- | --- |
+| VPN | openconnect is run by the background service (as SYSTEM). The app itself needs no admin rights, and there's no passwordless sudo step |
+| Tunnels | Uses the built-in `ssh.exe` (OpenSSH Client); the app reconnects dropped tunnels itself instead of autossh |
+| Menu bar | Replaced by a notification area icon: left-click opens the switch panel, right-click shows the menu, double-click opens the main window |
+| Credential files | Encrypted with your Windows account (DPAPI), so other accounts and other computers can't read them; plain-text files written by hand still work |
+| Private keys | Windows' ssh requires keys only you can read. Imported keys are locked down automatically; if your own key is too open, the jump host details offer **Fix Key Permissions** |
+| Route check | `routeMarker` is matched against the output of `route print` |
+| Shadowrocket, FortiClient | Not supported; they're left out on import |
+| File locations | The config is `%APPDATA%\NetLink\config.json`; the VPN log is `C:\ProgramData\NetLink\openconnect.log`, shown in the app's **Logs** window |
+
+To print the status without changing anything:
+
+```powershell
+& "C:\Program Files\NetLink\NetLink.exe" --status | Out-Host
+```
+
+Notes:
+
+- Local port 80 is often taken by IIS / http.sys (PID 4). If a forward can't start, the message names the program holding the port; move the forward to a port like 8080.
+- Signing out of Windows disconnects the VPN. The background service keeps running, so the app can connect again next time it opens.
+- Uninstalling disconnects everything and removes the background service; the config and accounts in `%APPDATA%\NetLink` are kept.
+
 ## Known limitations
 
 - Only arm64 builds are published, and dependencies default to `/opt/homebrew`. On an Intel Mac, build it yourself and change `openconnectPath` / `autosshPath`.
@@ -134,16 +168,32 @@ NetLink.app/Contents/MacOS/NetLink --self-test
 
 UI text lives in the code, with Chinese and English side by side: `tr("连接", "Connect")` (see `app/L10n.swift`).
 
+### Windows version
+
+Requires the .NET 10 SDK, Inno Setup 6 and 7-Zip. On Windows:
+
+```powershell
+.\windows\scripts\build.ps1 -Version 0.3.0   # test, publish the app and service, fetch openconnect, build the installer
+```
+
+The output is `windows\out\NetLink-0.3.0-x64-setup.exe`. openconnect is pinned to the official v9.12 Windows build and its sha256 is checked; see `windows/scripts/fetch-openconnect.ps1`.
+
+The parts that don't depend on Windows (config, import / export, command arguments) are in `windows/src/NetLink.Core`, and their tests run on any system:
+
+```bash
+dotnet test windows/tests/NetLink.Tests
+```
+
 ### Release
 
-Push a tag like `v*` and GitHub Actions builds the arm64 app, packages it as a dmg and publishes it to Releases:
+Push a tag like `v*` and GitHub Actions builds the arm64 app, packages it as a dmg and publishes it to Releases, then builds the Windows installer and uploads it to the same release:
 
 ```bash
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The outputs are `NetLink-v0.2.0-arm64.dmg` and its `.sha256`; the app version comes from the tag. Every push to `main` and every PR also runs the build and self-test.
+The outputs are `NetLink-v0.2.0-arm64.dmg`, `NetLink-v0.2.0-x64-setup.exe` and their `.sha256` files; the app version comes from the tag. Every push to `main` and every PR also builds and tests both versions.
 
 ## License
 

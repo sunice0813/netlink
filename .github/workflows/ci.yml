@@ -23,3 +23,21 @@ jobs:
           minos="$(otool -l NetLink.app/Contents/MacOS/NetLink | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
           echo "最低系统：$minos"
           test "$minos" = "14.0"
+
+  windows:
+    # Windows 版：测试、发布、打安装包（安装包只在 CI 里编译，不上传）。
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: 编译、测试、打安装包
+        shell: pwsh
+        run: ./windows/scripts/build.ps1
+      - name: 确认安装包在
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem windows/out -Filter 'NetLink-*-x64-setup.exe'
+          if (-not $setup) { throw 'installer missing' }
+          $setup | Format-Table Name, Length
