@@ -1,0 +1,111 @@
+<Application x:Class="NetLink.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+  <Application.Resources>
+    <ResourceDictionary>
+      <!-- 配色在 Palette.cs 里按浅色 / 深色写入这些键；这里只是启动前的占位。 -->
+      <SolidColorBrush x:Key="NL.Text" Color="#1B1B1B" />
+      <SolidColorBrush x:Key="NL.Muted" Color="#616161" />
+      <SolidColorBrush x:Key="NL.Line" Color="#E0E0E0" />
+      <SolidColorBrush x:Key="NL.Card" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="NL.Window" Color="#F3F3F3" />
+      <SolidColorBrush x:Key="NL.Canvas" Color="#F9F9F9" />
+      <SolidColorBrush x:Key="NL.Dot" Color="#D6D6D6" />
+      <SolidColorBrush x:Key="NL.Accent" Color="#0067C0" />
+      <SolidColorBrush x:Key="NL.Ok" Color="#0F7B0F" />
+      <SolidColorBrush x:Key="NL.Warn" Color="#9D5D00" />
+      <SolidColorBrush x:Key="NL.Bad" Color="#C42B1C" />
+      <SolidColorBrush x:Key="NL.WarnBack" Color="#FFF4CE" />
+      <SolidColorBrush x:Key="NL.Hover" Color="#0F000000" />
+      <SolidColorBrush x:Key="NL.Selected" Color="#1A000000" />
+      <SolidColorBrush x:Key="NL.SwitchOff" Color="#8A8A8A" />
+
+      <FontFamily x:Key="NL.Icons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+      <FontFamily x:Key="NL.Mono">Cascadia Mono, Consolas</FontFamily>
+
+      <!-- 开关：Windows 11 设置里那种拨动开关，用 CheckBox 做。 -->
+      <Style x:Key="NL.Switch" TargetType="CheckBox">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="True" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="CheckBox">
+              <Grid Background="Transparent">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border x:Name="Track" Width="40" Height="20" CornerRadius="10" BorderThickness="1"
+                        BorderBrush="{DynamicResource NL.SwitchOff}" Background="Transparent" VerticalAlignment="Center">
+                  <Ellipse x:Name="Knob" Width="12" Height="12" Fill="{DynamicResource NL.SwitchOff}"
+                           HorizontalAlignment="Left" Margin="4,0,0,0" />
+                </Border>
+                <ContentPresenter Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"
+                                  RecognizesAccessKey="True" />
+              </Grid>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                  <Setter TargetName="Track" Property="Background" Value="{DynamicResource NL.Accent}" />
+                  <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource NL.Accent}" />
+                  <Setter TargetName="Knob" Property="Fill" Value="White" />
+                  <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                  <Setter TargetName="Knob" Property="Margin" Value="0,0,4,0" />
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="Knob" Property="Width" Value="14" />
+                  <Setter TargetName="Knob" Property="Height" Value="14" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                  <Setter Property="Opacity" Value="0.45" />
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+
+      <!-- 扁平按钮：工具栏、侧边栏行、托盘面板里的命令。 -->
+      <Style x:Key="NL.Flat" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="8,5" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{DynamicResource NL.Text}" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="Button">
+              <Border x:Name="Back" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="Back" Property="Background" Value="{DynamicResource NL.Hover}" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                  <Setter TargetName="Back" Property="Background" Value="{DynamicResource NL.Selected}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                  <Setter Property="Opacity" Value="0.45" />
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+
+      <!-- 链接样式的按钮：删除这类操作。 -->
+      <Style x:Key="NL.Link" TargetType="Button">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="Button">
+              <ContentPresenter />
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

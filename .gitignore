@@ -1,3 +1,6 @@
 app/build/
 .DS_Store
-NetLink.app
+/NetLink.app
+windows/**/bin/
+windows/**/obj/
+windows/out/

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 不依赖 Windows 的部分：配置、校验、导入导出、命令参数、布局、文案。测试在任何系统上都能跑。 -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NetLink.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NetLink.Tests" />
+  </ItemGroup>
+
+</Project>

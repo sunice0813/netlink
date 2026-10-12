@@ -1,0 +1,39 @@
+NetLink for Windows — third-party components
+=============================================
+
+NetLink itself is released under the MIT License (LICENSE.txt).
+
+The installer also ships the official OpenConnect Windows build, unmodified, in the
+"openconnect" folder. It was taken from the OpenConnect project's GitLab CI build of
+tag v9.12 (job 4319289314, openconnect-installer-MinGW64-GnuTLS.exe,
+sha256 bb7fe698c757e003af74dcfbf1ec30f64432fa4bb0e1a27e28b8a9e86f765f8e).
+NetLink runs openconnect.exe as a separate program and does not link to it.
+
+Source code for these components is available from their upstream projects listed
+below; the exact OpenConnect source is the v9.12 tag at
+https://gitlab.com/openconnect/openconnect/-/tree/v9.12
+
+Component                     License                               Source
+----------------------------  ------------------------------------  ---------------------------------------------
+openconnect.exe,              LGPL-2.1-only                         https://gitlab.com/openconnect/openconnect
+libopenconnect-5.dll,
+list-system-keys.exe
+vpnc-script-win.js            GPL-2.0-or-later                      https://gitlab.com/openconnect/vpnc-scripts
+wintun.dll                    Wintun Prebuilt Binaries License      https://www.wintun.net/
+                              (redistributed unmodified)
+libgnutls-30.dll              LGPL-2.1-or-later                     https://www.gnutls.org/
+libnettle-7.dll,              LGPL-3.0-or-later or GPL-2.0-or-later https://www.lysator.liu.se/~nisse/nettle/
+libhogweed-5.dll
+libgmp-10.dll                 LGPL-3.0-or-later or GPL-2.0-or-later https://gmplib.org/
+libp11-kit-0.dll              BSD-3-Clause                          https://p11-glue.github.io/p11-glue/p11-kit.html
+libtasn1-6.dll                LGPL-2.1-or-later                     https://www.gnu.org/software/libtasn1/
+libxml2-2.dll                 MIT                                   https://gitlab.gnome.org/GNOME/libxml2
+zlib1.dll                     Zlib                                  https://zlib.net/
+iconv.dll                     LGPL-2.1-or-later                     https://www.gnu.org/software/libiconv/
+libffi-6.dll                  MIT                                   https://sourceware.org/libffi/
+libgcc_s_seh-1.dll,           GPL-3.0-or-later with GCC Runtime     https://gcc.gnu.org/
+libssp-0.dll                  Library Exception
+libwinpthread-1.dll           MIT and BSD-3-Clause                  https://www.mingw-w64.org/
+
+The .NET runtime bundled inside NetLink.exe and NetLink.Service.exe is
+Copyright (c) .NET Foundation and Contributors, MIT License (https://github.com/dotnet/runtime).
