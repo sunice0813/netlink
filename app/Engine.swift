@@ -872,7 +872,8 @@ enum Engine {
         let logPath = PathExpander.expand(config.vpnLogFile)
         try? FileManager.default.removeItem(atPath: pidPath)
         try? PathExpander.expand(file).write(toFile: ConfigStore.activeCredentialPath, atomically: true, encoding: .utf8)
-        let payload = Data("\(credential.user)\n\(credential.password)\n".utf8)
+        // --passwd-on-stdin 读的是标准输入的第一行，用户名已经由 --user 给了。
+        let payload = Data("\(credential.password)\n".utf8)
         emitLog(config.vpnLogFile, tr("开始连接 VPN", "Connecting VPN"))
         let result = Shell.run(
             config.openconnectPath,
