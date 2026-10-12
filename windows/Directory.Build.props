@@ -1,0 +1,16 @@
+<Project>
+  <!-- 所有项目共用。版本号由 NETLINK_VERSION（发布时从 tag 来）传进来。 -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version Condition="'$(NETLINK_VERSION)' != ''">$(NETLINK_VERSION)</Version>
+    <Version Condition="'$(Version)' == ''">0.0.0</Version>
+    <Company>NetLink</Company>
+    <Product>NetLink</Product>
+    <Copyright>MIT License</Copyright>
+    <!-- 让 macOS / Linux 上也能编译 Windows 目标（CI 和本地检查用），运行仍然只在 Windows 上。 -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+</Project>
