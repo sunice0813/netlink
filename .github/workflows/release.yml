@@ -20,7 +20,7 @@ jobs:
       - name: 编译并自检
         env:
           TAG: ${{ github.ref_name }}
-        run: NETLINK_VERSION="${TAG#v}" ./scripts/build.sh
+        run: NETLINK_VERSION="${TAG#v}" ./mac/scripts/build.sh
 
       - name: 确认是 arm64
         run: |
@@ -39,7 +39,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           dmg="NetLink-${TAG}-arm64.dmg"
-          ./scripts/make-dmg.sh NetLink.app "$dmg"
+          ./mac/scripts/make-dmg.sh NetLink.app "$dmg"
           shasum -a 256 "$dmg" > "$dmg.sha256"
           cat "$dmg.sha256"
 

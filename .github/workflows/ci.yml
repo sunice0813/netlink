@@ -17,7 +17,7 @@ jobs:
       - name: 工具链
         run: swiftc --version
       - name: 编译并自检
-        run: ./scripts/build.sh
+        run: ./mac/scripts/build.sh
       - name: 确认最低系统是 macOS 14
         run: |
           minos="$(otool -l NetLink.app/Contents/MacOS/NetLink | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"

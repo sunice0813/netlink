@@ -6,7 +6,7 @@ using NetLink.Core;
 
 namespace NetLink.Tests;
 
-/// 每个测试一个临时家目录和数据目录，不碰真实的配置。对应 Mac 版 app/SelfTest.swift。
+/// 每个测试一个临时家目录和数据目录，不碰真实的配置。对应 Mac 版 mac/SelfTest.swift。
 public sealed class Sandbox : IDisposable
 {
     public string Root { get; } = Path.Combine(Path.GetTempPath(), "netlink-test-" + Guid.NewGuid().ToString("N"));

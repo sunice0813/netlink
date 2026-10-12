@@ -3,7 +3,7 @@ using System.Globalization;
 namespace NetLink.Core;
 
 // 界面只支持中文和英文，两种文案直接写在调用处：Tr("连接", "Connect")。
-// 和 Mac 版 app/L10n.swift 一致。
+// 和 Mac 版 mac/L10n.swift 一致。
 
 public enum AppLanguage
 {
