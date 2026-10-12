@@ -25,7 +25,7 @@ jobs:
           test "$minos" = "14.0"
 
   windows:
-    # Windows 版：测试、发布、打安装包（安装包只在 CI 里编译，不上传）。
+    # Windows 版：测试、发布、打安装包。安装包作为构建产物保留 7 天，方便在真机上试。
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,3 +41,8 @@ jobs:
           $setup = Get-ChildItem windows/out -Filter 'NetLink-*-x64-setup.exe'
           if (-not $setup) { throw 'installer missing' }
           $setup | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetLink-windows-x64-setup
+          path: windows/out/NetLink-*-x64-setup.exe
+          retention-days: 7
