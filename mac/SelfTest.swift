@@ -155,6 +155,13 @@ enum SelfTest {
         let childSSH = Proc(pid: 6, command: "/usr/bin/ssh -N -E \(ourLog) -i /k -L 80:10.0.0.10:80 user@jump.example.com")
         let manual = Proc(pid: 7, command: "/usr/bin/ssh -L 80:10.0.0.10:80 user@jump.example.com")
         let unrelated = Proc(pid: 8, command: "/usr/bin/vim notes-about-autossh.txt -E \(ourLog)")
+        // 真实的 autossh -f 父进程：-f 被抹成空格，命令行里没有 -L 参数。
+        let realParent = Proc(pid: 5, command: "/opt/homebrew/bin/autossh -M 0    -N -E \(ourLog) -i /k -o ServerAliveInterval=30 -L", ppid: 1)
+        let realChild = Proc(pid: 6, command: "/usr/bin/ssh -N -E \(ourLog) -i /k -L 80:10.0.0.10:80 user@jump.example.com", ppid: 5)
+        let otherParent = Proc(pid: 9, command: "/opt/homebrew/bin/autossh -M 0    -N -E \(ourLog) -i /k -L", ppid: 1)
+        let otherChild = Proc(pid: 10, command: "/usr/bin/ssh -N -E \(ourLog) -i /k -L 3306:10.0.0.11:3306 user@jump.example.com", ppid: 9)
+        let found = Engine.carriers(spec: "80:10.0.0.10:80", config: config, procs: [realParent, realChild, otherParent, otherChild]).map(\.pid).sorted()
+        check("carriers include autossh parent without -L", found == [5, 6])
         check("our autossh is recognised", Engine.isOurAutossh(ours, config: config))
         check("our ssh child is recognised", Engine.isOurForwardingSSH(childSSH, config: config))
         check("manual ssh -L is left alone", !Engine.isOurForwardingSSH(manual, config: config) && !Engine.isOurAutossh(manual, config: config))
@@ -321,6 +328,9 @@ enum SelfTest {
         check("watch off", Engine.classifyWatch(flag: false, shell: false, serviceAlive: true) == .off)
         check("no restart while shell owns it", !Engine.shouldRestart(flag: true, shell: true, healthy: false, fails: 9, threshold: 2))
         check("no restart when healthy", !Engine.shouldRestart(flag: true, shell: false, healthy: true, fails: 9, threshold: 2))
+        check("backoff doubles from 30s", Engine.restartDelay(afterAttempts: 1) == 30 && Engine.restartDelay(afterAttempts: 2) == 60 && Engine.restartDelay(afterAttempts: 4) == 240)
+        check("backoff is capped", Engine.restartDelay(afterAttempts: 50) == 1800)
+        check("no backoff before the first restart", Engine.restartDelay(afterAttempts: 0) == 0)
         check("restart at threshold", Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: 2, threshold: 2))
         check("wait for second failure", !Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: 1, threshold: 2))
 

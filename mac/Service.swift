@@ -94,6 +94,11 @@ enum Service {
         var lastTunnel = Date.distantPast
         var vpnFails = 0
         var tunnelFails = 0
+        // 连续重连的次数和下一次最早允许重连的时间。健康一次就清零。
+        var vpnRestarts = 0
+        var tunnelRestarts = 0
+        var vpnNotBefore = Date.distantPast
+        var tunnelNotBefore = Date.distantPast
         var idleSince: Date?
 
         while !ServiceControl.shared.stop {
@@ -128,13 +133,21 @@ enum Service {
                 let healthy = Engine.vpnHealthy(config: config, procs: procs)
                 if healthy {
                     vpnFails = 0
+                    vpnRestarts = 0
+                    vpnNotBefore = .distantPast
                 } else {
                     vpnFails += 1
                     Engine.emitLog(config.vpnLogFile, tr("VPN 健康检查失败（\(vpnFails)/\(config.vpnFailThreshold)）", "VPN health check failed (\(vpnFails)/\(config.vpnFailThreshold))"))
                     if Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: vpnFails, threshold: config.vpnFailThreshold) {
-                        Engine.restartVPNPreservingFlag(config: config)
-                        vpnFails = 0
-                        Thread.sleep(forTimeInterval: 10)
+                        if now < vpnNotBefore {
+                            Engine.emitLog(config.vpnLogFile, tr("VPN 重连退避中，\(Int(vpnNotBefore.timeIntervalSince(now))) 秒后再试", "VPN reconnect backing off, retrying in \(Int(vpnNotBefore.timeIntervalSince(now)))s"))
+                        } else {
+                            Engine.restartVPNPreservingFlag(config: config)
+                            vpnFails = 0
+                            vpnRestarts += 1
+                            vpnNotBefore = Date().addingTimeInterval(Engine.restartDelay(afterAttempts: vpnRestarts))
+                            Thread.sleep(forTimeInterval: 10)
+                        }
                     }
                 }
             }
@@ -144,13 +157,21 @@ enum Service {
                 let healthy = Engine.tunnelHealthy(config: config)
                 if healthy {
                     tunnelFails = 0
+                    tunnelRestarts = 0
+                    tunnelNotBefore = .distantPast
                 } else {
                     tunnelFails += 1
                     Engine.emitLog(config.tunnelLogFile, tr("隧道健康检查失败（\(tunnelFails)/\(config.tunnelFailThreshold)）", "Tunnel health check failed (\(tunnelFails)/\(config.tunnelFailThreshold))"))
                     if Engine.shouldRestart(flag: true, shell: false, healthy: false, fails: tunnelFails, threshold: config.tunnelFailThreshold) {
-                        Engine.restartTunnelPreservingFlag(config: config)
-                        tunnelFails = 0
-                        Thread.sleep(forTimeInterval: 8)
+                        if now < tunnelNotBefore {
+                            Engine.emitLog(config.tunnelLogFile, tr("隧道重连退避中，\(Int(tunnelNotBefore.timeIntervalSince(now))) 秒后再试", "Tunnel reconnect backing off, retrying in \(Int(tunnelNotBefore.timeIntervalSince(now)))s"))
+                        } else {
+                            Engine.restartTunnelPreservingFlag(config: config)
+                            tunnelFails = 0
+                            tunnelRestarts += 1
+                            tunnelNotBefore = Date().addingTimeInterval(Engine.restartDelay(afterAttempts: tunnelRestarts))
+                            Thread.sleep(forTimeInterval: 8)
+                        }
                     }
                 }
             }

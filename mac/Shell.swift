@@ -4,6 +4,9 @@ import Foundation
 struct Proc: Equatable {
     var pid: Int32
     var command: String
+    /// 只有 Shell.processes() 会填。autossh -f 之后父进程的命令行里看不到 -L 参数，
+    /// 要靠它从 ssh 子进程找回父进程。
+    var ppid: Int32 = 0
 }
 
 struct CommandResult: Equatable {
@@ -86,23 +89,33 @@ enum SudoPath {
 }
 
 enum Shell {
-    static func parsePS(_ output: String) -> [Proc] {
+    /// withParent 为 true 时每行是 `pid ppid command`，否则是 `pid command`。
+    static func parsePS(_ output: String, withParent: Bool = false) -> [Proc] {
         output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { raw in
-            let trimmed = raw.trimmingCharacters(in: .whitespaces)
-            guard let space = trimmed.firstIndex(of: " ") else { return nil }
-            let pidText = trimmed[..<space]
-            guard let pid = Int32(pidText), pid > 0 else { return nil }
-            let command = trimmed[trimmed.index(after: space)...].trimmingCharacters(in: .whitespaces)
+            var rest = Substring(raw.trimmingCharacters(in: .whitespaces))
+            func nextField() -> String? {
+                guard let space = rest.firstIndex(of: " ") else { return nil }
+                let field = String(rest[..<space])
+                rest = rest[rest.index(after: space)...].drop { $0 == " " }
+                return field
+            }
+            guard let pidText = nextField(), let pid = Int32(pidText), pid > 0 else { return nil }
+            var ppid: Int32 = 0
+            if withParent {
+                guard let parentText = nextField(), let parent = Int32(parentText) else { return nil }
+                ppid = parent
+            }
+            let command = rest.trimmingCharacters(in: .whitespaces)
             guard !command.isEmpty else { return nil }
-            return Proc(pid: pid, command: command)
+            return Proc(pid: pid, command: command, ppid: ppid)
         }
     }
 
     static func processes() -> [Proc] {
         // 进程多、命令行长的时候 ps 输出会超过默认上限，后面（pid 大的）会被截掉，
         // 新起的进程就看不见了，所以这里放宽。
-        let result = run("/bin/ps", ["-ax", "-o", "pid=,command="], timeout: 8, maxOutput: 8_000_000)
-        return parsePS(result.stdout)
+        let result = run("/bin/ps", ["-ax", "-o", "pid=,ppid=,command="], timeout: 8, maxOutput: 8_000_000)
+        return parsePS(result.stdout, withParent: true)
     }
 
     static func run(

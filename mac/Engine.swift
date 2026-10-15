@@ -92,6 +92,14 @@ enum Engine {
         flag && !shell && !healthy && fails >= threshold
     }
 
+    /// 守护连续重连时的等待时间：第 1 次重连之后等 base，之后每次翻倍，最多 cap。
+    /// 目标本身起不来（比如远端拒绝连接）时，重连一万次也没用，只会白白消耗进程和日志。
+    static func restartDelay(afterAttempts attempts: Int, base: TimeInterval = 30, cap: TimeInterval = 1800) -> TimeInterval {
+        guard attempts > 0 else { return 0 }
+        let exponent = min(attempts - 1, 20)
+        return min(cap, base * pow(2, Double(exponent)))
+    }
+
     static func openConnectArguments(host: String, user: String, pidFile: String, timeout: Int) -> [String] {
         [
             "--protocol=anyconnect", host,
@@ -577,7 +585,7 @@ enum Engine {
                 emit(tr("已停掉终端里的隧道守护，避免它把这条转发重新拉起来", "Stopped the terminal tunnel watchdog so it won't bring this forward back up"))
             }
             let shared = Shell.processes().contains { proc in
-                carries(proc, spec: forward.spec, config: config)
+                proc.command.contains(forward.spec)
                     && config.forwards.contains { $0.localPort != forward.localPort && proc.command.contains($0.spec) }
             }
             if shared {
@@ -726,7 +734,7 @@ enum Engine {
             for forward in down {
                 _ = startAutossh(config, forwards: [forward])
             }
-            restoreEnabled(config, except: nil)
+            restoreEnabled(config, except: Set(down.map(\.localPort)))
         }
     }
 
@@ -985,6 +993,10 @@ enum Engine {
             emit(tr("读不到密钥 \(identity)", "Can't read key \(identity)"))
             return false
         }
+        // 同一条转发只留一个 autossh：不管是哪条路径走到这里，先清掉旧的再起。
+        for forward in chosen {
+            killCarriers(spec: forward.spec, config: config)
+        }
         emitLog(config.tunnelLogFile, tr("开始连接 \(chosen.map(\.name).joined(separator: "、"))", "Connecting \(chosen.map(\.name).joined(separator: ", "))"))
         let result = Shell.run(
             config.autosshPath,
@@ -1005,6 +1017,9 @@ enum Engine {
         }
         sleep(1)
         let rest = Shell.processes()
+        for proc in rest where isOurAutossh(proc, config: config) || isOurForwardingSSH(proc, config: config) {
+            signal(proc.pid, sudo: true, force: true)
+        }
         for forward in config.forwards {
             let owned = ownedListeners(forward.localPort, config: config, procs: rest)
             for pid in owned.ours {
@@ -1017,11 +1032,7 @@ enum Engine {
     }
 
     private static func stopForward(_ config: AppConfig, _ forward: Forward, restoreOthers: Bool) {
-        let procs = Shell.processes().filter { carries($0, spec: forward.spec, config: config) }
-        for proc in procs {
-            signal(proc.pid, sudo: true)
-        }
-        sleep(1)
+        killCarriers(spec: forward.spec, config: config)
         let owned = ownedListeners(forward.localPort, config: config, procs: Shell.processes())
         for pid in owned.ours {
             signal(pid, sudo: true, force: true)
@@ -1030,12 +1041,16 @@ enum Engine {
             emit(tr("\(forward.name) 的端口 \(forward.localPort) 被别的程序占着（PID \(pid)），没有动它", "Port \(forward.localPort) for \(forward.name) is held by another program (PID \(pid)); left it alone"))
         }
         if restoreOthers {
-            restoreEnabled(config, except: forward.localPort)
+            restoreEnabled(config, except: [forward.localPort])
         }
     }
 
-    private static func restoreEnabled(_ config: AppConfig, except: Int?) {
-        for forward in config.forwards where forward.enabled && forward.localPort != except {
+    /// except 里的端口刚被调用方处理过，autossh -f 立刻返回而端口还没监听，不能当成「没起来」再拉一遍。
+    private static func restoreEnabled(_ config: AppConfig, except: Set<Int>) {
+        let procs = Shell.processes()
+        for forward in config.forwards where forward.enabled && !except.contains(forward.localPort) {
+            // autossh 自己会重试；已经有进程在管这条转发，再起一个只会叠加。
+            if !carriers(spec: forward.spec, config: config, procs: procs).isEmpty { continue }
             if listeners(forward.localPort).isEmpty {
                 emit(tr("重新连接 \(forward.name)", "Reconnecting \(forward.name)"))
                 _ = startAutossh(config, forwards: [forward])
@@ -1043,9 +1058,26 @@ enum Engine {
         }
     }
 
-    private static func carries(_ proc: Proc, spec: String, config: AppConfig) -> Bool {
-        let ours = isOurAutossh(proc, config: config) || isOurForwardingSSH(proc, config: config)
-        return ours && proc.command.contains(spec)
+    /// 承载这条转发的进程：带 -L spec 的 ssh 子进程，以及它们的 autossh 父进程。
+    /// `autossh -f` 之后父进程的命令行里没有 -L 参数，只认命令行会漏掉父进程，
+    /// 父进程不死，ssh 杀一次它就拉一次，隧道进程就越攒越多。
+    static func carriers(spec: String, config: AppConfig, procs: [Proc]) -> [Proc] {
+        let children = procs.filter { isOurForwardingSSH($0, config: config) && $0.command.contains(spec) }
+        let parents = Set(children.map(\.ppid))
+        let wrappers = procs.filter { isOurAutossh($0, config: config) && (parents.contains($0.pid) || $0.command.contains(spec)) }
+        var seen = Set<Int32>()
+        return (wrappers + children).filter { seen.insert($0.pid).inserted }
+    }
+
+    /// 先停父进程，再停子进程，宽限一秒后还活着的用 SIGKILL。
+    private static func killCarriers(spec: String, config: AppConfig) {
+        let first = carriers(spec: spec, config: config, procs: Shell.processes())
+        guard !first.isEmpty else { return }
+        for proc in first { signal(proc.pid, sudo: true) }
+        sleep(1)
+        for proc in carriers(spec: spec, config: config, procs: Shell.processes()) {
+            signal(proc.pid, sudo: true, force: true)
+        }
     }
 
     private static func ensureJump(_ config: AppConfig, jump: Jump? = nil, startVPNIfNeeded: Bool) -> Bool {
