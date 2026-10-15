@@ -94,6 +94,8 @@ enum SelfTest {
         let shadowY = arranged[TopologyKey.vpn(VPNProfile.shadowrocket)]!.y
         let fortiY = arranged[TopologyKey.vpn(VPNProfile.forticlient)]!.y
         check("default puts the tunnel vpn in the middle", shadowY < companyY && companyY < fortiY)
+        check("db forward uses cylinder", NodeLook.serviceSymbol(name: "dev-db", targetPort: 3306) == "cylinder.split.1x2")
+        check("gateway forward uses network", NodeLook.serviceSymbol(name: "dev-gateway", targetPort: 443) == "network")
         let bulky = (0..<400).map { "\($0 + 1) /usr/bin/x " + String(repeating: "a", count: 1000) }.joined(separator: "\n") + "\n99999 /app/NetLink --service\n"
         check("late pids survive parsing", Shell.parsePS(bulky).last?.pid == 99999)
         let bigRun = Shell.run("/bin/sh", ["-c", "head -c 300000 /dev/zero | tr '\\0' a"], maxOutput: 400_000)

@@ -214,7 +214,8 @@ struct AppConfig: Codable, Equatable {
     var autosshPath: String = "/opt/homebrew/bin/autossh"
 
     /// 节点尺寸变了就加一：旧的位置按旧尺寸摆的，升级后重新排一次。
-    static let layoutRevision = 2
+    /// 3：跳板后的转发列间距更紧，配合总线式连线，多条隧道时更整齐。
+    static let layoutRevision = 3
 
     private enum CodingKeys: String, CodingKey {
         case credentialFile, vpnPidFile, vpnLogFile, vpnWatchdogFile
@@ -268,10 +269,14 @@ enum TopologySide {
 
 enum TopologyMetrics {
     static let nodeSize = CGSize(width: 160, height: 54)
-    static let columnGap: CGFloat = 44
+    static let columnGap: CGFloat = 52
     static let rowGap: CGFloat = 16
+    /// 同一跳板下多条转发竖排时更紧一点，避免扇形散开占满整屏。
+    static let forwardRowGap: CGFloat = 8
     static let origin = CGPoint(x: 28, y: 28)
     static let inset: CGFloat = 12
+    /// 跳板到转发之间的竖向总线，相对跳板右缘的偏移。
+    static let forwardRailInset: CGFloat = 22
 
     static func center(of origin: CGPoint) -> CGPoint {
         CGPoint(x: origin.x + nodeSize.width / 2, y: origin.y + nodeSize.height / 2)
@@ -505,13 +510,14 @@ extension AppConfig {
         let metrics = TopologyMetrics.self
         let nodeH = metrics.nodeSize.height
         let rowGap = metrics.rowGap
+        let forwardGap = metrics.forwardRowGap
         let step = metrics.nodeSize.width + metrics.columnGap
         func column(_ index: Int) -> CGFloat { metrics.origin.x + CGFloat(index) * step }
         var placed: [String: CGPoint] = [:]
 
-        func stackHeight(_ count: Int) -> CGFloat {
+        func stackHeight(_ count: Int, gap: CGFloat = rowGap) -> CGFloat {
             guard count > 0 else { return 0 }
-            return CGFloat(count) * nodeH + CGFloat(count - 1) * rowGap
+            return CGFloat(count) * nodeH + CGFloat(count - 1) * gap
         }
 
         struct JumpBlock {
@@ -538,7 +544,7 @@ extension AppConfig {
             var jumpBlocks: [JumpBlock] = []
             for jump in jumps(on: vpn.id) {
                 let list = forwards(on: jump.id)
-                let height = list.isEmpty ? nodeH : max(nodeH, stackHeight(list.count))
+                let height = list.isEmpty ? nodeH : max(nodeH, stackHeight(list.count, gap: forwardGap))
                 jumpBlocks.append(JumpBlock(id: jump.id, height: height, forwards: list.map(\.id)))
             }
             let heights = children.map(\.height) + jumpBlocks.map(\.height)
@@ -576,10 +582,10 @@ extension AppConfig {
             }
             for jump in block.jumps {
                 placed[TopologyKey.jump(jump.id)] = CGPoint(x: column(depth + 2), y: cursor + (jump.height - nodeH) / 2)
-                var forwardCursor = cursor + (jump.height - stackHeight(jump.forwards.count)) / 2
+                var forwardCursor = cursor + (jump.height - stackHeight(jump.forwards.count, gap: forwardGap)) / 2
                 for id in jump.forwards {
                     placed[TopologyKey.forward(id)] = CGPoint(x: column(depth + 3), y: forwardCursor)
-                    forwardCursor += nodeH + rowGap
+                    forwardCursor += nodeH + forwardGap
                 }
                 cursor += jump.height + rowGap
             }

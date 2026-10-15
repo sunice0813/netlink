@@ -30,11 +30,12 @@ struct MenuPanel: View {
                 ForEach(model.config.forwards) { forward in
                     let port = model.status(of: forward)
                     let busy = model.job == .forwardConnect(forward.localPort) || model.job == .forwardDisconnect(forward.localPort)
+                    let brand = NodeLook.serviceBrand(forward, theme: theme)
                     MenuToggleRow(
                         title: forward.name,
                         trailing: ":\(forward.localPort)",
                         detail: port.httpOK ? tr("已连接", "Connected") : (port.listening ? tr("无响应", "No response") : tr("未连接", "Off")),
-                        tint: port.httpOK ? theme.ok : (port.listening ? theme.warn : theme.muted),
+                        tint: port.httpOK ? brand : (port.listening ? theme.warn : theme.muted),
                         isOn: port.httpOK || port.listening,
                         busy: busy,
                         open: port.httpOK ? URL(string: port.browseURL) : nil

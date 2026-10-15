@@ -159,7 +159,7 @@ struct SidebarView: View {
     private func row(_ item: Selection, trailing: String? = nil) -> some View {
         if let look = NodeLook.of(item, model: model, theme: theme) {
             HStack(spacing: 8) {
-                StatusDot(color: look.on ? look.tint : theme.muted.opacity(0.45), size: 8)
+                StatusDot(color: look.status, size: 8)
                 Text(look.title)
                     .lineLimit(1)
                 Spacer(minLength: 4)

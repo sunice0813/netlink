@@ -241,14 +241,14 @@ struct InspectorView: View {
     private func header(_ selection: Selection, toggle: Binding<Bool>?, busy: Bool) -> some View {
         if let look = NodeLook.of(selection, model: model, theme: theme) {
             HStack(spacing: 12) {
-                ServiceBadge(pageURL: look.pageURL, iconFile: look.iconFile, symbol: look.symbol, tint: look.on ? look.tint : theme.muted, side: 38, ring: false)
+                ServiceBadge(pageURL: look.pageURL, iconFile: look.iconFile, symbol: look.symbol, tint: look.tint, side: 38, ring: false)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(look.title)
                         .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
                     Text(look.detail)
                         .font(.system(size: 12))
-                        .foregroundStyle(look.on ? look.tint : theme.muted)
+                        .foregroundStyle(look.status == theme.muted ? theme.muted : look.tint.opacity(0.9))
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)

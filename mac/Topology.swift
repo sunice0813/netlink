@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+private enum TopologyWireStyle {
+    case curve
+    /// 跳板 → 多条转发：先到竖向总线，再水平接入，避免扇形贝塞尔缠在一起。
+    case rail(railX: CGFloat)
+}
+
 private struct TopologyEdge: Identifiable {
     var id: String
     var from: CGPoint
@@ -8,6 +14,7 @@ private struct TopologyEdge: Identifiable {
     var fromSide: TopologySide
     var toSide: TopologySide
     var on: Bool
+    var style: TopologyWireStyle = .curve
 }
 
 @MainActor
@@ -134,8 +141,13 @@ struct TopologyCanvas: View {
         }
         var visited = Set<UUID>()
 
-        func add(_ id: String, _ link: (from: CGPoint, to: CGPoint, fromSide: TopologySide, toSide: TopologySide), on: Bool) {
-            edges.append(TopologyEdge(id: id, from: link.from, to: link.to, fromSide: link.fromSide, toSide: link.toSide, on: on))
+        func add(
+            _ id: String,
+            _ link: (from: CGPoint, to: CGPoint, fromSide: TopologySide, toSide: TopologySide),
+            on: Bool,
+            style: TopologyWireStyle = .curve
+        ) {
+            edges.append(TopologyEdge(id: id, from: link.from, to: link.to, fromSide: link.fromSide, toSide: link.toSide, on: on, style: style))
         }
 
         func emit(_ vpn: VPNProfile) {
@@ -159,16 +171,19 @@ struct TopologyCanvas: View {
                 let jumpLink = TopologyMetrics.link(from: origin, to: jumpOrigin, fromBias: jumpBiases[jumpIndex], toBias: 0)
                 add("v-\(vpn.id.uuidString)-\(jump.id.uuidString)", jumpLink, on: model.isOn(jump))
                 let forwards = model.config.forwards(on: jump.id)
-                let tunnelBiases = sideBiases(for: forwards.map { placed[TopologyKey.forward($0.id)] ?? .zero }, parent: jumpOrigin)
-                for (forwardIndex, forward) in forwards.enumerated() {
+                let hub = TopologyMetrics.rightPort(of: jumpOrigin)
+                let railX = hub.x + TopologyMetrics.forwardRailInset
+                for forward in forwards {
                     guard let tunnelOrigin = placed[TopologyKey.forward(forward.id)] else { continue }
-                    let tunnelLink = TopologyMetrics.link(
-                        from: jumpOrigin,
-                        to: tunnelOrigin,
-                        fromBias: tunnelBiases[forwardIndex],
-                        toBias: 0
+                    let leaf = TopologyMetrics.leftPort(of: tunnelOrigin)
+                    let style: TopologyWireStyle = forwards.count > 1 ? .rail(railX: railX) : .curve
+                    let link = (
+                        from: hub,
+                        to: leaf,
+                        fromSide: TopologySide.right,
+                        toSide: TopologySide.left
                     )
-                    add("j-\(jump.id.uuidString)-\(forward.id.uuidString)", tunnelLink, on: model.status(of: forward).httpOK)
+                    add("j-\(jump.id.uuidString)-\(forward.id.uuidString)", link, on: model.status(of: forward).httpOK, style: style)
                 }
             }
         }
@@ -312,7 +327,10 @@ struct NodeLook {
     var pageURL: String? = nil
     var title: String
     var detail: String
+    /// 图标/品牌色：通了也不一律用绿，按服务类型区分。
     var tint: Color
+    /// 连通状态色：绿 / 橙 / 灰，只给状态点和说明文字。
+    var status: Color
     var on: Bool
 
     @MainActor
@@ -333,7 +351,7 @@ struct NodeLook {
     fileprivate static func make(_ kind: TopologyCanvas.NodeItem.Kind, model: AppModel, theme: Theme) -> NodeLook {
         switch kind {
         case .machine:
-            return NodeLook(symbol: "laptopcomputer", title: model.config.machineName, detail: tr("这台 Mac", "This Mac"), tint: theme.text, on: true)
+            return NodeLook(symbol: "laptopcomputer", title: model.config.machineName, detail: tr("这台 Mac", "This Mac"), tint: theme.text, status: theme.ok, on: true)
         case .vpn(let profile):
             let on = model.isOn(profile)
             let detail: String
@@ -345,16 +363,36 @@ struct NodeLook {
                 let host = model.vpnHost(profile)
                 detail = host.isEmpty ? tr("未设置", "Not set") : host
             }
-            let tint: Color = !on ? theme.muted : (profile.isSystemVPN || model.vpn.phase == .up ? theme.ok : theme.warn)
-            return NodeLook(symbol: vpnSymbol(profile), iconFile: Engine.systemVPNAppPath(kind: profile.kind), title: profile.name, detail: detail, tint: tint, on: on)
+            let brand = vpnBrand(profile)
+            let status: Color = !on ? theme.muted : (profile.isSystemVPN || model.vpn.phase == .up ? theme.ok : theme.warn)
+            return NodeLook(symbol: vpnSymbol(profile), iconFile: Engine.systemVPNAppPath(kind: profile.kind), title: profile.name, detail: detail, tint: on ? brand : theme.muted, status: status, on: on)
         case .jump(let jump):
             let on = model.isOn(jump)
-            return NodeLook(symbol: "server.rack", title: jump.name, detail: hostOnly(jump.host), tint: on ? theme.ok : theme.muted, on: on)
+            return NodeLook(symbol: "server.rack", title: jump.name, detail: hostOnly(jump.host), tint: on ? Color(nsColor: .systemBrown) : theme.muted, status: on ? theme.ok : theme.muted, on: on)
         case .forward(let forward):
             let port = model.status(of: forward)
-            let state = port.httpOK ? tr("已连接", "connected") : (port.listening ? tr("无响应", "no response") : tr("未连接", "off"))
-            let tint = port.httpOK ? theme.ok : (port.listening ? theme.warn : theme.muted)
-            return NodeLook(symbol: serviceSymbol(forward.name), pageURL: port.browseURL, title: forward.name, detail: ":\(forward.localPort) \(state)", tint: tint, on: port.httpOK)
+            // 已连通只显示端口，状态靠角标；多条转发时卡片更干净。
+            let state: String
+            if port.httpOK {
+                state = ":\(forward.localPort)"
+            } else if port.listening {
+                state = ":\(forward.localPort) \(tr("无响应", "no response"))"
+            } else {
+                state = ":\(forward.localPort) \(tr("未连接", "off"))"
+            }
+            let brand = serviceBrand(forward, theme: theme)
+            let status = port.httpOK ? theme.ok : (port.listening ? theme.warn : theme.muted)
+            // TCP 目标（数据库等）没有网页图标；HTTP 才去抓 favicon。
+            let pageURL = forward.check == .http ? port.browseURL : nil
+            return NodeLook(
+                symbol: serviceSymbol(forward),
+                pageURL: pageURL,
+                title: forward.name,
+                detail: state,
+                tint: port.httpOK || port.listening ? brand : theme.muted,
+                status: status,
+                on: port.httpOK
+            )
         }
     }
 
@@ -364,6 +402,12 @@ struct NodeLook {
         return "lock.shield"
     }
 
+    static func vpnBrand(_ profile: VPNProfile) -> Color {
+        if profile.isShadowrocket { return Color(nsColor: .systemOrange) }
+        if profile.isForticlient { return Color(nsColor: .systemRed) }
+        return Color(nsColor: .systemBlue)
+    }
+
     static func hostOnly(_ raw: String) -> String {
         if let host = raw.split(separator: "@").last, !host.isEmpty {
             return String(host)
@@ -371,11 +415,43 @@ struct NodeLook {
         return raw.isEmpty ? tr("未设置", "Not set") : raw
     }
 
-    static func serviceSymbol(_ name: String) -> String {
+    static func serviceSymbol(_ forward: Forward) -> String {
+        serviceSymbol(name: forward.name, targetPort: forward.targetPort)
+    }
+
+    static func serviceSymbol(name: String, targetPort: Int = 0) -> String {
         let lower = name.lowercased()
         if lower.contains("git") { return "chevron.left.forwardslash.chevron.right" }
         if lower.contains("jump") { return "key.horizontal" }
+        if lower.contains("gateway") || lower.contains("gw") || lower.contains("api") {
+            return "network"
+        }
+        if lower.contains("db") || lower.contains("mysql") || lower.contains("postgres") || lower.contains("sql")
+            || lower.contains("redis") || lower.contains("mongo")
+            || [3306, 5432, 6379, 27017, 1433].contains(targetPort) {
+            return "cylinder.split.1x2"
+        }
+        if targetPort == 443 || targetPort == 8443 { return "globe" }
         return "arrow.left.arrow.right"
+    }
+
+    static func serviceBrand(_ forward: Forward, theme: Theme) -> Color {
+        serviceBrand(name: forward.name, targetPort: forward.targetPort, theme: theme)
+    }
+
+    static func serviceBrand(name: String, targetPort: Int = 0, theme: Theme) -> Color {
+        let lower = name.lowercased()
+        if lower.contains("git") { return Color(nsColor: .systemOrange) }
+        if lower.contains("jump") { return Color(nsColor: .systemBrown) }
+        if lower.contains("gateway") || lower.contains("gw") || lower.contains("api") || targetPort == 443 || targetPort == 8443 {
+            return Color(nsColor: .systemIndigo)
+        }
+        if lower.contains("db") || lower.contains("mysql") || lower.contains("postgres") || lower.contains("sql")
+            || lower.contains("redis") || lower.contains("mongo")
+            || [3306, 5432, 6379, 27017, 1433].contains(targetPort) {
+            return Color(nsColor: .systemTeal)
+        }
+        return theme.accent
     }
 }
 
@@ -390,8 +466,8 @@ struct TopologyNode: View {
     var body: some View {
         HStack(spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
-                ServiceBadge(pageURL: look.pageURL, iconFile: look.iconFile, symbol: look.symbol, tint: look.on ? look.tint : theme.muted, side: 28, ring: false)
-                StatusDot(color: look.on ? look.tint : theme.muted.opacity(0.5))
+                ServiceBadge(pageURL: look.pageURL, iconFile: look.iconFile, symbol: look.symbol, tint: look.tint, side: 28, ring: false)
+                StatusDot(color: look.status)
                     .offset(x: 3, y: 3)
             }
             VStack(alignment: .leading, spacing: 1) {
@@ -400,7 +476,7 @@ struct TopologyNode: View {
                     .lineLimit(1)
                 Text(look.detail)
                     .font(.system(size: 11))
-                    .foregroundStyle(look.on ? look.tint : theme.muted)
+                    .foregroundStyle(look.status == theme.muted ? theme.muted : look.tint.opacity(0.9))
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -468,6 +544,7 @@ private struct TopologyWires: View {
                     fromSide: edge.fromSide,
                     toSide: edge.toSide,
                     on: edge.on,
+                    style: edge.style,
                     theme: theme
                 )
             }
@@ -482,10 +559,21 @@ private struct TopologyWire: View {
     var fromSide: TopologySide
     var toSide: TopologySide
     var on: Bool
+    var style: TopologyWireStyle
     var theme: Theme
 
     var body: some View {
         let color = on ? theme.ok : theme.line
+        switch style {
+        case .curve:
+            curve(color: color)
+        case .rail(let railX):
+            rail(railX: railX, color: color)
+        }
+    }
+
+    @ViewBuilder
+    private func curve(color: Color) -> some View {
         let span = hypot(to.x - from.x, to.y - from.y)
         let pull = max(28, min(72, span * 0.4))
         let c1 = TopologyMetrics.pull(from, side: fromSide, distance: pull)
@@ -499,6 +587,23 @@ private struct TopologyWire: View {
             }
             .stroke(color, style: StrokeStyle(lineWidth: on ? 2 : 1.5, lineCap: .round, lineJoin: .round, dash: on ? [] : [4, 4]))
             ArrowHead(at: to, angle: tipAngle, color: color)
+        }
+    }
+
+    @ViewBuilder
+    private func rail(railX: CGFloat, color: Color) -> some View {
+        let elbow = CGPoint(x: railX, y: from.y)
+        let branch = CGPoint(x: railX, y: to.y)
+        let tip = CGPoint(x: to.x - 1.5, y: to.y)
+        ZStack {
+            Path { path in
+                path.move(to: from)
+                path.addLine(to: elbow)
+                path.addLine(to: branch)
+                path.addLine(to: tip)
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: on ? 2 : 1.5, lineCap: .round, lineJoin: .round, dash: on ? [] : [4, 4]))
+            ArrowHead(at: to, angle: 0, color: color)
         }
     }
 }
