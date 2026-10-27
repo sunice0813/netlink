@@ -1237,15 +1237,18 @@ enum Engine {
         }
     }
 
+    /// 转发的健康检查超时，和 VPN 检查间隔的默认值保持一致，不单独做成配置。
+    private static let forwardCheckTimeout: TimeInterval = 15
+
     private static func tcpUp(_ port: Int) -> Bool {
-        Shell.run("/usr/bin/nc", ["-z", "-w", "3", "127.0.0.1", String(port)], timeout: 5).ok
+        Shell.run("/usr/bin/nc", ["-z", "-w", String(Int(forwardCheckTimeout)), "127.0.0.1", String(port)], timeout: forwardCheckTimeout + 2).ok
     }
 
     private static func httpUp(_ port: Int) -> Bool {
         let result = Shell.run(
             "/usr/bin/curl",
-            ["-s", "-o", "/dev/null", "--max-time", "3", "http://127.0.0.1:\(port)/"],
-            timeout: 5
+            ["-s", "-o", "/dev/null", "--max-time", String(Int(forwardCheckTimeout)), "http://127.0.0.1:\(port)/"],
+            timeout: forwardCheckTimeout + 2
         )
         return result.ok
     }
