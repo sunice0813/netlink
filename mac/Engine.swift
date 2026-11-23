@@ -833,15 +833,16 @@ enum Engine {
         snap.watch = classifyWatch(flag: snap.watchFlag, shell: shell, serviceAlive: serviceAlive())
 
         snap.ports = config.forwards.map { forward in
-            PortStatus(
+            let listening = !listeners(forward.localPort).isEmpty
+            return PortStatus(
                 name: forward.name,
                 localPort: forward.localPort,
                 target: forward.target,
                 browseLabel: forward.browseLabel,
                 browseURL: forward.browseURL?.absoluteString ?? "http://127.0.0.1:\(forward.localPort)/",
                 enabled: forward.enabled,
-                listening: !listeners(forward.localPort).isEmpty,
-                httpOK: forwardUp(forward)
+                listening: listening,
+                httpOK: forwardUp(forward, listening: listening)
             )
         }.sorted { $0.localPort < $1.localPort }
         let wanted = snap.ports.filter(\.enabled)
@@ -1230,18 +1231,23 @@ enum Engine {
         return result.ok
     }
 
-    private static func forwardUp(_ forward: Forward) -> Bool {
+    private static func forwardUp(_ forward: Forward, listening: Bool? = nil) -> Bool {
         switch forward.check {
         case .http: return httpUp(forward.localPort)
-        case .tcp: return tcpUp(forward.localPort)
+        case .tcp: return listening ?? tcpUp(forward.localPort)
         }
     }
 
     /// 转发的健康检查超时，和 VPN 检查间隔的默认值保持一致，不单独做成配置。
     private static let forwardCheckTimeout: TimeInterval = 15
 
+    /// `tcp` 只看本地端口有没有人在听，绝不真的去连一次。
+    /// `nc -z` 会经 ssh -L 建一条到目标的 TCP 连接然后立刻断掉：HTTP 服务无所谓，
+    /// 但 MySQL 会把它记成一次没完成握手的连接（max_connect_errors），守护每 5 秒
+    /// 探一次，几分钟就能把跳板机的 IP 封掉（1129 Host ... is blocked）。
+    /// autossh 挂了本地监听也就没了，所以看监听和原来 `nc -z` 得到的信号一样。
     private static func tcpUp(_ port: Int) -> Bool {
-        Shell.run("/usr/bin/nc", ["-z", "-w", String(Int(forwardCheckTimeout)), "127.0.0.1", String(port)], timeout: forwardCheckTimeout + 2).ok
+        !listeners(port).isEmpty
     }
 
     private static func httpUp(_ port: Int) -> Bool {
